@@ -1,0 +1,2 @@
+# voz da central gerada no servidor (opcional; precisa do modelo, ver app/voz.py)
+kokoro-onnx>=0.4
