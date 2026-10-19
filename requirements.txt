@@ -1,0 +1,2 @@
+# para o Render achar as dependencias na raiz do repositorio
+-r backend/requirements.txt
