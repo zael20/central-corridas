@@ -1,0 +1,215 @@
+<title>Raciocínio da Central</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: uma coluna de leitura; o fluxo é uma "esteira" vertical de etapas, e o despacho vira barras de tempo em escala. */
+:root {
+  --bg: #f3f2ef; --surface: #ffffff; --surface-2: #ebe9e4; --line: #d6d3cc; --fg: #1f2421; --muted: #5f6661;
+  --accent: #b87d00; --ok: #2e7d4f; --info: #1f6fb2; --bad: #b3261e; --busy: #8a6a2e; --free: #2e7d4f;
+  --f-display: "Barlow Condensed", "Arial Narrow", sans-serif; --f-body: "IBM Plex Sans", system-ui, sans-serif; --f-mono: "IBM Plex Mono", ui-monospace, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #161917; --surface: #1f2321; --surface-2: #2a2f2c; --line: #3a403c; --fg: #e8e9e6; --muted: #a2a9a4;
+  --accent: #f0b429; --ok: #6fcf97; --info: #6cb4f0; --bad: #ff8a80; --busy: #d9b26a; --free: #6fcf97; color-scheme: dark; } }
+:root[data-theme="dark"] {
+  --bg: #161917; --surface: #1f2321; --surface-2: #2a2f2c; --line: #3a403c; --fg: #e8e9e6; --muted: #a2a9a4;
+  --accent: #f0b429; --ok: #6fcf97; --info: #6cb4f0; --bad: #ff8a80; --busy: #d9b26a; --free: #6fcf97; color-scheme: dark; }
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--fg); font: 15px/1.55 var(--f-body); margin: 0; }
+.wrap { max-width: 980px; margin: 0 auto; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 28px 56px; display: flex; flex-direction: column; gap: 34px; }
+h1, h2, h3 { font-family: var(--f-display); text-transform: uppercase; letter-spacing: .03em; margin: 0; text-wrap: balance; }
+h1 { font-size: clamp(30px, 6vw, 46px); line-height: 1; }
+h1 span { color: var(--accent); }
+h2 { font-size: 24px; letter-spacing: .05em; }
+h3 { font-size: 18px; letter-spacing: .05em; }
+p { margin: 0; max-width: 68ch; }
+.lead { color: var(--muted); font-size: 16px; }
+.mono { font-family: var(--f-mono); font-size: 13px; }
+header { display: flex; flex-direction: column; gap: 10px; }
+.legenda { display: flex; flex-wrap: wrap; gap: 8px 18px; color: var(--muted); font-size: 13px; }
+.legenda i { display: inline-block; width: 12px; height: 12px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; }
+
+/* esteira de etapas */
+.esteira { display: flex; flex-direction: column; gap: 0; }
+.etapa { display: grid; grid-template-columns: 54px minmax(0, 1fr); gap: 0 16px; }
+.trilho { display: flex; flex-direction: column; align-items: center; }
+.no { width: 40px; height: 40px; border-radius: 50%; background: var(--fg); color: var(--bg); font: 700 18px/40px var(--f-display); text-align: center; flex: none; }
+.etapa.despacho .no { background: var(--accent); color: #161917; }
+.linha { width: 3px; flex: 1; background: var(--line); min-height: 18px; }
+.etapa:last-child .linha { display: none; }
+.corpo { padding-bottom: 26px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.corpo h3 { padding-top: 8px; }
+.cartoes { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; }
+.cartao { background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 10px 12px; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.cartao b { font-family: var(--f-display); text-transform: uppercase; letter-spacing: .04em; font-size: 15px; }
+.cartao small { color: var(--muted); font-size: 13px; }
+.exemplo { font-family: var(--f-mono); font-size: 12.5px; background: var(--surface-2); border-radius: 4px; padding: 6px 8px; overflow-x: auto; white-space: pre-wrap; }
+.seta { color: var(--accent); font-weight: 700; }
+
+/* ordem das regras de intenção */
+.ordem { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.ordem span { background: var(--surface); border: 1px solid var(--line); border-radius: 999px; padding: 3px 10px; font-size: 13px; }
+.ordem em { color: var(--muted); font-style: normal; }
+
+/* tabela de intenções → ação */
+.tabela { overflow-x: auto; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); }
+table { border-collapse: collapse; width: 100%; font-size: 14px; }
+th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-family: var(--f-display); text-transform: uppercase; letter-spacing: .05em; font-size: 14px; color: var(--muted); background: var(--surface-2); }
+tr:last-child td { border-bottom: 0; }
+td:first-child { white-space: nowrap; font-weight: 600; }
+
+/* despacho em escala */
+.cenario { background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 14px; display: flex; flex-direction: column; gap: 12px; }
+.cenario header { gap: 4px; }
+.barras { display: flex; flex-direction: column; gap: 10px; }
+.carro { display: grid; grid-template-columns: 150px minmax(0, 1fr) 74px; gap: 10px; align-items: center; }
+.carro .quem { font-size: 13px; line-height: 1.3; }
+.carro .quem b { font-family: var(--f-mono); font-size: 13px; }
+.trilha { position: relative; height: 26px; background: var(--surface-2); border-radius: 3px; overflow: hidden; display: flex; }
+.seg { height: 100%; font: 600 11.5px/26px var(--f-mono); color: #fff; padding-left: 6px; white-space: nowrap; overflow: hidden; }
+.seg.ocupado { background: var(--busy); }
+.seg.desloc { background: var(--info); }
+.total { font: 600 15px var(--f-mono); text-align: right; font-variant-numeric: tabular-nums; }
+.carro.ganha .total { color: var(--ok); }
+.carro.ganha .quem::after { content: "escolhido"; display: inline-block; margin-left: 6px; font: 700 11px var(--f-display); letter-spacing: .06em; text-transform: uppercase; color: var(--ok); border: 1px solid var(--ok); border-radius: 3px; padding: 0 4px; }
+.regua { display: grid; grid-template-columns: 150px minmax(0, 1fr) 74px; gap: 10px; }
+.regua div:nth-child(2) { display: flex; justify-content: space-between; font: 11px var(--f-mono); color: var(--muted); border-top: 1px solid var(--line); padding-top: 3px; }
+.veredito { border-left: 3px solid var(--ok); padding-left: 10px; }
+@media (max-width: 560px) { .carro, .regua { grid-template-columns: 96px minmax(0, 1fr) 54px; } .etapa { grid-template-columns: 40px minmax(0, 1fr); gap: 0 10px; } .no { width: 32px; height: 32px; line-height: 32px; font-size: 15px; } }
+
+.formula { font-family: var(--f-mono); background: var(--surface); border: 1px dashed var(--line); border-radius: 6px; padding: 10px 12px; font-size: 13.5px; overflow-x: auto; }
+.formula b { color: var(--accent); }
+footer { color: var(--muted); font-size: 13px; }
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>Raciocínio da <span>Central</span></h1>
+    <p class="lead">Da hora em que a pessoa fala no rádio ou no app até o carro chegar e tudo ficar registrado para a gestão. Cada etapa abaixo é exatamente o que o servidor faz, na ordem.</p>
+  </header>
+
+  <section class="esteira" aria-label="Etapas">
+    <div class="etapa"><div class="trilho"><div class="no">1</div><div class="linha"></div></div><div class="corpo">
+      <h3>Chega a fala</h3>
+      <div class="cartoes">
+        <div class="cartao"><b>Rádio</b><small>O operador ouve, fala ou digita na aba Rádio da central.</small></div>
+        <div class="cartao"><b>App do passageiro</b><small>Microfone, texto ou o formulário "Pedir sem falar". O app manda junto os dados salvos (nome e matrícula).</small></div>
+      </div>
+      <div class="exemplo">“Opa, meu nome é Sávio, matrícula 822, queria um povo saindo da oficina até o CMD”</div>
+    </div></div>
+
+    <div class="etapa"><div class="trilho"><div class="no">2</div><div class="linha"></div></div><div class="corpo">
+      <h3>Entende o texto</h3>
+      <div class="cartoes">
+        <div class="cartao"><b>Limpa</b><small>Tira acento, deixa minúsculo: "Sávio" vira "savio".</small></div>
+        <div class="cartao"><b>Quem é</b><small>Acha nome e matrícula ("matrícula é 822", "meu nome Misael", "Misael 12345").</small></div>
+        <div class="cartao"><b>Cadastro de pessoas</b><small>Cada fala é um voto. Sabio = Sávio, 832 → 822. O nome que mais repete vence.</small></div>
+        <div class="cartao"><b>Onde e para onde</b><small>Procura os apelidos dos 40 locais, aceita 1 letra errada ("arbitragem" = Britagem). "da/do/saindo" = origem, "para/até" = destino.</small></div>
+        <div class="cartao"><b>Detalhes</b><small>Quantas pessoas, urgente ("acidente"), horário ("às 14h", "daqui a 10 min").</small></div>
+      </div>
+      <div class="exemplo">nome Sávio · matrícula 822 (confirmada) · origem Oficina · destino CMD · 1 pessoa · normal</div>
+    </div></div>
+
+    <div class="etapa"><div class="trilho"><div class="no">3</div><div class="linha"></div></div><div class="corpo">
+      <h3>Decide o que a pessoa quer</h3>
+      <p>Tenta nesta ordem e para na primeira que responder:</p>
+      <div class="ordem"><span>Frase que você corrigiu</span><em class="seta">›</em><span>Listas de frases (≈270)</span><em class="seta">›</em><span>Mesma lista com 1 letra errada</span><em class="seta">›</em><span>IA paga (se ligada)</span><em class="seta">›</em><span>Situação da viagem dela</span></div>
+      <div class="cartoes">
+        <div class="cartao"><b>Pela situação</b><small>A viagem já começou e a pessoa diz "ainda estou esperando": o carro foi sem ela.</small></div>
+        <div class="cartao"><b>Sem duplicar</b><small>A pessoa já tem viagem aberta e "pede" o mesmo trajeto: responde a viagem que existe.</small></div>
+      </div>
+    </div></div>
+
+    <div class="etapa"><div class="trilho"><div class="no">4</div><div class="linha"></div></div><div class="corpo">
+      <h3>Age conforme a intenção</h3>
+      <div class="tabela"><table>
+        <thead><tr><th>Intenção</th><th>O que a central faz</th></tr></thead>
+        <tbody>
+          <tr><td>Pedir</td><td>Faltou origem ou destino: pede para repetir. Completo: vai para o despacho (etapa 5).</td></tr>
+          <tr><td>Informação</td><td>Acha a viagem pela matrícula, pelo nome ou pelo aparelho e diz carro, onde está, distância e minutos. Carro parado há 2 min ou atrasado: responde e já pergunta ao motorista.</td></tr>
+          <tr><td>Cancelar</td><td>Cancela até o carro chegar. Se a viagem já começou, explica e oferece "não entrei no carro".</td></tr>
+          <tr><td>Não embarquei</td><td>Alerta a central e pede ao motorista para confirmar quem está no carro: é o passageiro / é outra pessoa (nome e matrícula) / iniciei por engano. Outra pessoa: novo carro com prioridade.</td></tr>
+          <tr><td>Não acho o carro</td><td>Pergunta ao motorista onde ele está e repassa a resposta.</td></tr>
+          <tr><td>Reclamação</td><td>Registra ocorrência na viagem e avisa a central.</td></tr>
+        </tbody>
+      </table></div>
+    </div></div>
+
+    <div class="etapa despacho"><div class="trilho"><div class="no">5</div><div class="linha"></div></div><div class="corpo">
+      <h3>Escolhe o carro (despacho)</h3>
+      <p>Para cada carro, a central faz a mesma conta que o operador faz de cabeça: onde ele está, se está ocupado, quanto falta para terminar, se tem fila, e quanto tempo leva até a pessoa.</p>
+      <div class="cartoes">
+        <div class="cartao"><b>1 · Pode atender?</b><small>Em operação, com lugares para o grupo e que não recusou esta corrida.</small></div>
+        <div class="cartao"><b>2 · Quando fica livre</b><small>Livre = agora. Ocupado = termina a corrida atual (ir buscar + embarque 1,5 min + viagem + desembarque 1 min) e depois a fila dele.</small></div>
+        <div class="cartao"><b>3 · Deslocamento</b><small>Do ponto onde ele fica livre até a origem: distância pela estrada ÷ 30 km/h, ou o tempo medido na planilha.</small></div>
+        <div class="cartao"><b>4 · Menor tempo vence</b><small>Não é o mais perto, é o que chega primeiro.</small></div>
+      </div>
+      <div class="formula">chega em = <b>tempo para ficar livre</b> + <b>deslocamento até a origem</b> → o menor ganha</div>
+      <div class="cartoes">
+        <div class="cartao"><b>Ganhou livre</b><small>A corrida cai direto para ele e ele já sai.</small></div>
+        <div class="cartao"><b>Ganhou ocupado</b><small>A corrida é oferecida: aceita ou recusa. Sem resposta em 60 s, aceita sozinho. Recusou: vai para o próximo da lista.</small></div>
+        <div class="cartao"><b>Urgente</b><small>Entra na frente da fila do carro escolhido.</small></div>
+        <div class="cartao"><b>Nenhum pode</b><small>Fica na fila geral; a cada 2 s a central tenta de novo e avisa a pessoa quando sair carro.</small></div>
+      </div>
+    </div></div>
+
+    <div class="etapa"><div class="trilho"><div class="no">6</div><div class="linha"></div></div><div class="corpo">
+      <h3>Responde e acompanha</h3>
+      <div class="cartoes">
+        <div class="cartao"><b>Resposta falada</b><small>"Sávio, viagem confirmada. Motorista C, veículo 3, chegará em Oficina em 7 minutos. Câmbio."</small></div>
+        <div class="cartao"><b>Motorista</b><small>Cheguei → Embarcou → Finalizar. O GPS do celular atualiza a posição.</small></div>
+        <div class="cartao"><b>Vigia a cada 2 s</b><small>Parado mais de 4 min ou 5 min além da previsão: pergunta ao motorista. Sem resposta em 3 min: alerta a central.</small></div>
+        <div class="cartao"><b>Avisos</b><small>Carro definido depois da fila, resposta do motorista, novo carro: tudo falado para quem pediu.</small></div>
+      </div>
+    </div></div>
+
+    <div class="etapa"><div class="trilho"><div class="no">7</div><div class="linha"></div></div><div class="corpo">
+      <h3>Registra para a gestão</h3>
+      <div class="cartoes">
+        <div class="cartao"><b>Tempos de cada viagem</b><small>Espera, aceite, fila, deslocamento, embarque, viagem, total e erro da previsão.</small></div>
+        <div class="cartao"><b>Por carro</b><small>Corridas, recusas, tempo ocioso, km vazio e km com passageiro.</small></div>
+        <div class="cartao"><b>Para aprender</b><small>Cada conversa: o que foi falado, o que entendeu, o que respondeu. As correções viram aprendizado.</small></div>
+        <div class="cartao"><b>Ocorrências</b><small>Não embarcou, outra pessoa no carro, reclamação, carro com problema.</small></div>
+      </div>
+    </div></div>
+  </section>
+
+  <section style="display:flex;flex-direction:column;gap:14px" aria-label="Exemplos do despacho">
+    <h2>O despacho em escala</h2>
+    <p>Mesma origem, mesmos carros, situações diferentes. Cada barra é o tempo até o carro chegar na pessoa: a parte marrom é o que ele precisa terminar antes, a azul é o deslocamento até a origem. Exemplos ilustrativos com as regras reais (30 km/h, embarque 1,5 min, desembarque 1 min).</p>
+    <div class="legenda"><span><i style="background:var(--busy)"></i>termina o que tem</span><span><i style="background:var(--info)"></i>deslocamento até a origem</span></div>
+    <div id="cenarios" style="display:flex;flex-direction:column;gap:14px"></div>
+  </section>
+
+  <footer>Na central, cada chamada tem o botão “Por que este carro?” com esta mesma conta, feita no momento do pedido, para todos os carros.</footer>
+</div>
+
+<script>
+// cenários: [carro, situação, termina (min), deslocamento (min)]
+const CENARIOS = [
+  { titulo: 'Pedido na Oficina · o livre mais longe chega antes',
+    carros: [['V01', 'ocupado, levando passageiro aqui perto', 9, 1.2], ['V02', 'livre, parado na Mina 05', 0, 6.4], ['V03', 'livre, no Canteiro', 0, 8.1]],
+    texto: 'O V01 está a 600 m, mas só fica livre daqui a 9 min. O V02 está livre e chega em 6,4 min, então a corrida vai direto para ele.' },
+  { titulo: 'Pedido na Oficina · o ocupado que está terminando ganha',
+    carros: [['V01', 'ocupado, desembarcando na GAINF', 2, 1.6], ['V02', 'livre, parado na Mina 05', 0, 6.4], ['V03', 'livre, no Canteiro', 0, 8.1]],
+    texto: 'Agora o V01 termina em 2 min e está a 1,6 min da Oficina: chega em 3,6 min, antes do livre. Como ele está ocupado, a corrida é oferecida e ele aceita ou recusa (aceite automático em 60 s).' },
+];
+const fmt = v => (Math.round(v * 10) / 10).toString().replace('.', ',');
+const el = document.getElementById('cenarios');
+const max = Math.max(...CENARIOS.flatMap(c => c.carros.map(([, , a, b]) => a + b)));
+const escala = Math.ceil(max / 2) * 2; // régua de 0 até o múltiplo de 2 acima do maior
+el.innerHTML = CENARIOS.map(c => {
+  const venc = c.carros.reduce((m, x) => (x[2] + x[3] < m[2] + m[3] ? x : m));
+  const barras = c.carros.map(x => {
+    const [id, sit, a, b] = x, tot = a + b;
+    return `<div class="carro${x === venc ? ' ganha' : ''}"><div class="quem"><b>${id}</b><br>${sit}</div>
+      <div class="trilha">${a ? `<div class="seg ocupado" style="width:${a / escala * 100}%">${fmt(a)}</div>` : ''}<div class="seg desloc" style="width:${b / escala * 100}%">${fmt(b)}</div></div>
+      <div class="total">${fmt(tot)} min</div></div>`;
+  }).join('');
+  const marcas = Array.from({ length: escala / 2 + 1 }, (_, i) => `<span>${i * 2}</span>`).join('');
+  return `<div class="cenario"><header><h3>${c.titulo}</h3></header><div class="barras">${barras}</div>
+    <div class="regua"><div></div><div>${marcas}</div><div></div></div><p class="veredito">${c.texto}</p></div>`;
+}).join('');
+</script>

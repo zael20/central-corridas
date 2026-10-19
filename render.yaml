@@ -1,0 +1,23 @@
+# Publicação na nuvem (Render.com, plano grátis): New → Blueprint → escolha este repositório.
+# As variáveis marcadas com "sync: false" são pedidas na tela do Render (não ficam no GitHub).
+services:
+  - type: web
+    name: central-corridas
+    runtime: python
+    plan: free
+    buildCommand: pip install -r backend/requirements.txt
+    startCommand: cd backend && uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/saude
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.13.2
+      - key: VOZ               # a voz Dora não cabe na memória do plano grátis: as telas usam a voz do aparelho
+        value: "0"
+      - key: MAPTILER_KEY      # chave do mapa satelital
+        sync: false
+      - key: CODIGO_PASSAGEIRO # código que o pessoal digita para pedir viagem
+        sync: false
+      - key: CODIGO_OPERACAO   # código da central e dos motoristas
+        sync: false
+      - key: ACESSO_SEGREDO
+        generateValue: true

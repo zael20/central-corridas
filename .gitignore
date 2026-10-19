@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+.venv/
+backend/dados/
+android/node_modules/
+android/www/
+android/android/
+android/capacitor.config.json
+.env

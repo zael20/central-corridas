@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Central de Corridas</title>
+<link rel="stylesheet" href="estilo.css">
+<link rel="manifest" href="manifest.json">
+<script src="fixo.js"></script>
+</head><body>
+<header><div class="topo"><h1>Central de <span>Corridas</span></h1></div></header>
+<main style="max-width:560px">
+  <div class="pilha">
+    <div class="painel">
+      <h2>Servidor</h2>
+      <p class="aviso">Endereço do computador onde o servidor está rodando (ex.: http://192.168.0.50:8000). Fica salvo neste aparelho.</p>
+      <div class="acoes"><input type="text" id="srv" inputmode="url" style="flex:1"><button class="btn" id="testar">Testar</button></div>
+      <p class="aviso" id="res" style="margin-top:8px"></p>
+    </div>
+    <div class="painel">
+      <h2>Abrir aplicativo</h2>
+      <div class="pilha" style="gap:8px">
+        <a class="btn grande principal" style="text-align:center;text-decoration:none" href="passageiro.html" data-app="passageiro">Passageiro</a>
+        <a class="btn grande" style="text-align:center;text-decoration:none" href="motorista.html" data-app="motorista">Motorista</a>
+        <a class="btn grande" style="text-align:center;text-decoration:none" href="central.html" data-app="central">Central</a>
+      </div>
+    </div>
+  </div>
+</main>
+<script>
+  const ls = { get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }, set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} } };
+  const srv = document.getElementById('srv'), res = document.getElementById('res');
+  srv.value = ls.get('servidor') || (location.protocol.startsWith('http') ? location.origin : 'http://');
+  // app Android com tela fixa: ?app=motorista abre direto o app escolhido
+  const fixo = new URLSearchParams(location.search).get('app') || window.APP_FIXO;
+  if (fixo) document.querySelectorAll('[data-app]').forEach(a => { if (a.dataset.app !== fixo) a.hidden = true; });
+  async function testar() {
+    const url = srv.value.trim().replace(/\/$/, '');
+    res.textContent = 'Testando…';
+    try { const r = await fetch(url + '/api/saude'); if (!r.ok) throw new Error('HTTP ' + r.status); ls.set('servidor', url); res.textContent = '✓ Servidor encontrado e salvo.'; if (fixo) location.replace(fixo + '.html'); return true; }
+    catch (e) { res.textContent = '✗ Não encontrei o servidor nesse endereço (' + e.message + '). Confira o IP, a porta e se o celular está na mesma rede.'; return false; }
+  }
+  document.getElementById('testar').onclick = testar;
+  if (fixo && ls.get('servidor') && !new URLSearchParams(location.search).has('config')) location.replace(fixo + '.html');
+</script>
+</body></html>

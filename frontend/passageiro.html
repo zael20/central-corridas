@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Pedir pool</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<link rel="stylesheet" href="estilo.css">
+</head><body>
+<header><div class="topo"><h1>Pedir <span>Pool</span></h1><div class="acoes"><span class="modo" id="con"><i></i> Conectando…</span><a class="aviso" style="margin:0" href="index.html?config=1">Servidor</a></div></div></header>
+<main>
+  <div class="grade">
+    <div class="pilha">
+      <div class="painel destaque">
+        <h2>Minha viagem</h2>
+        <div id="viagem"><p class="vazio">Nenhuma viagem em andamento.</p></div>
+        <div id="mapa-box" hidden style="margin-top:10px"><div class="mapa-sat" id="mapa"></div></div>
+      </div>
+      <div class="painel">
+        <h2>Falar com a central</h2>
+        <div id="voz"></div>
+      </div>
+    </div>
+    <div class="pilha">
+      <div class="painel">
+        <h2>Meus dados</h2>
+        <p class="aviso">Ficam salvos neste aparelho. Assim a central sabe quem está pedindo mesmo que você não fale o nome.</p>
+        <div class="form">
+          <label>Nome<input type="text" id="nome" autocomplete="name"></label>
+          <label>Matrícula<input type="text" id="mat" inputmode="numeric"></label>
+        </div>
+      </div>
+      <div class="painel"><h2>Voz</h2><div id="voz-cfg"></div></div>
+      <div class="painel">
+        <h2>Pedir sem falar</h2>
+        <form class="form" id="form">
+          <label>Buscar em<select id="origem" required></select></label>
+          <label>Levar para<select id="destino" required></select></label>
+          <label>Passageiros<input type="number" id="pax" min="1" max="15" value="1"></label>
+          <label class="check" style="align-self:end"><input type="checkbox" id="urg"> Urgente</label>
+          <div class="acoes cheia"><button class="btn principal" type="submit">Pedir pool</button></div>
+        </form>
+      </div>
+    </div>
+  </div>
+</main>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="fixo.js"></script>
+<script src="comum.js"></script>
+<script>
+(async function () {
+  const { $, esc, por, pill, hora, MIN, api, ls, clienteId } = App;
+  App.painelVoz($('voz-cfg'));
+  $('nome').value = ls.get('nome') || ''; $('mat').value = ls.get('matricula') || '';
+  $('nome').onchange = () => ls.set('nome', $('nome').value.trim());
+  $('mat').onchange = () => ls.set('matricula', $('mat').value.replace(/\D/g, ''));
+  const eu = () => ({ nome: $('nome').value.trim() || null, matricula: $('mat').value.replace(/\D/g, '') || null });
+
+  let minha = ls.get('minhaViagem');
+  App.caixaVoz($('voz'), { canal: 'app', ident: eu, aoResponder: r => { if (r.criada && r.corrida) { minha = r.corrida.id; ls.set('minhaViagem', minha); } if (r.interpretacao.matricula && !$('mat').value) { $('mat').value = r.interpretacao.matricula; ls.set('matricula', r.interpretacao.matricula); } render(); } });
+
+  await App.iniciar($('con'));
+  const opc = App.locais.slice().sort((a, b) => a.nome.localeCompare(b.nome)).map(l => `<option value="${l.id}">${esc(l.nome)}</option>`).join('');
+  $('origem').innerHTML = '<option value="">— escolher —</option>' + opc; $('destino').innerHTML = $('origem').innerHTML;
+  $('form').onsubmit = async ev => {
+    ev.preventDefault();
+    try {
+      const r = await api('/api/corridas', { origem: $('origem').value, destino: $('destino').value, passageiros: +$('pax').value || 1, urgente: $('urg').checked,
+        solicitante: eu().nome || '', matricula: eu().matricula || '', canal: 'app', clienteId });
+      minha = r.corrida.id; ls.set('minhaViagem', minha); App.falar(r.fala); App.toast(r.fala); render();
+    } catch (e) { App.toast(e.message); }
+  };
+
+  function minhaCorrida(est) {
+    const m = eu().matricula;
+    const cs = est.corridas.filter(c => c.id === minha || c.criadoPor === clienteId || (m && c.matricula === m));
+    return cs.find(c => c.id === minha) || cs[0];
+  }
+  function render() {
+    const est = App.estado; if (!est) return;
+    const r = minhaCorrida(est);
+    if (!r) { $('mapa-box').hidden = true; return por('viagem', '<p class="vazio">Nenhuma viagem em andamento.</p>'); }
+    const m = est.motoristas.find(x => x.id === r.carro), t = est.agora;
+    let topo = '';
+    if (r.status === 'sem_carro') topo = `<p>${esc(r.observacao || 'Sem carro disponível. Seu pedido está na fila.')}</p>`;
+    else if (r.status === 'agendada') topo = `<p>Agendado para ${hora(r.agendadoPara)}.</p>`;
+    else if (m && r.etaAgora) topo = `<div class="eta">${Math.max(0, Math.round((r.etaAgora - t) / MIN))}<small> min</small></div>
+      <div>Chega por volta de <b>${hora(r.etaAgora)}</b> · Carro <b>${esc(m.id)}</b> · ${esc(m.nome)} · perto de ${esc(m.onde)}</div>
+      ${m.paradoMin >= 2 && r.status === 'a_caminho' ? `<div class="falta">Carro parado há ${Math.round(m.paradoMin)} min</div>` : ''}`;
+    else if (m) topo = `<div>Carro <b>${esc(m.id)}</b> · ${esc(m.nome)}</div>`;
+    const passos = [['Pedido feito', r.criadoEm], ['Carro definido', r.atribuidoEm], ['Saiu para te buscar', r.saiuParaBuscaEm], ['Carro chegou', r.chegouOrigemEm], ['Embarque', r.iniciouViagemEm], ['Chegou ao destino', r.finalizadoEm]];
+    const aberta = ['agendada', 'sem_carro', 'oferecida', 'na_fila', 'a_caminho'].includes(r.status);
+    por('viagem', `<div class="pilha" style="gap:10px">
+      <div class="acoes">${pill(r.status)}<span class="id">${esc(r.id)}</span></div>
+      <div class="rota-txt">${esc(App.nomeLocal(r.origem))} → ${esc(App.nomeLocal(r.destino))}</div>
+      ${topo}
+      ${r.compartilhada && !['concluida', 'cancelada'].includes(r.status) ? `<div class="resposta" style="border-left-color:var(--info)">Viagem compartilhada: o carro também leva outro(s) passageiro(s) e pode fazer paradas antes do seu destino.${r.etaDestino ? ' Chegada prevista ao destino: <b>' + hora(r.etaDestino) + '</b>.' : ''}</div>` : r.status === 'em_viagem' && r.etaDestino ? `<div>Chegada prevista ao destino: <b>${hora(r.etaDestino)}</b></div>` : ''}
+      <div class="linha-tempo">${passos.map(([n, v]) => `<div class="${v ? '' : 'pend'}"><span>${n}</span><span>${hora(v)}</span></div>`).join('')}</div>
+      <div class="acoes"><button class="btn principal" id="info">Onde está meu carro?</button>${aberta || r.status === 'no_local' ? '<button class="btn perigo" id="cancelar">Cancelar</button>' : ''}${r.status === 'em_viagem' ? '<button class="btn perigo" id="naoentrei">Não entrei no carro</button>' : ''}</div></div>`);
+    const comMapa = m && !['concluida', 'cancelada'].includes(r.status);
+    $('mapa-box').hidden = !comMapa;
+    if (comMapa) App.mapa($('mapa'), { carro: m.id, alvos: [r.origem, r.destino] });
+    $('info').onclick = async () => {
+      try { const x = await api('/api/assistente', { texto: 'onde está meu carro', canal: 'app', clienteId, ...eu(), matricula: eu().matricula || r.matricula }); App.falar(x.fala); App.toast(x.fala, 9000); }
+      catch (e) { App.toast(e.message); }
+    };
+    if ($('naoentrei')) $('naoentrei').onclick = async () => {
+      try { const x = await api('/api/assistente', { texto: 'a viagem já começou mas eu não entrei no carro', canal: 'app', clienteId, ...eu(), matricula: eu().matricula || r.matricula, nome: eu().nome || r.solicitante }); App.falar(x.fala); App.toast(x.fala, 10000); }
+      catch (e) { App.toast(e.message); }
+    };
+    if ($('cancelar')) $('cancelar').onclick = async () => { if (confirm('Cancelar este pedido?')) { await api(`/api/corridas/${r.id}/cancelar`, { motivo: 'cancelado pelo passageiro' }); } };
+  }
+  // avisos da central para mim (carro definido depois da fila, resposta do motorista)
+  App.ouvintes.push((msg) => {
+    if (msg.tipo === 'estado' || msg.tipo === 'locais_ok') return render();
+    if (msg.tipo === 'fala' && (msg.clienteId === clienteId || (eu().matricula && msg.matricula === eu().matricula))) { App.bip(); App.falar(msg.texto); App.toast(msg.texto, 10000); }
+  });
+  setInterval(render, 5000);
+})();
+</script>
+</body></html>

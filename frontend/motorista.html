@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Motorista</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<link rel="stylesheet" href="estilo.css">
+<style>
+  .alerta { position: fixed; inset: 0; z-index: 30; background: rgba(0,0,0,.55); display: flex; align-items: center; justify-content: center; padding: 16px; }
+  .alerta .painel { max-width: 460px; width: 100%; border: 3px solid var(--bad); }
+  .alerta p { font-size: 18px; font-weight: 600; margin: 0 0 12px; }
+  .roteiro { margin: 0; padding-left: 22px; display: flex; flex-direction: column; gap: 10px; }
+  .roteiro li { display: flex; flex-direction: column; gap: 6px; }
+  .roteiro li.agora::marker { color: var(--accent); font-weight: 700; }
+</style>
+</head><body>
+<header><div class="topo"><h1>App do <span>Motorista</span></h1><div class="acoes"><span class="modo" id="con"><i></i> Conectando…</span><a class="aviso" style="margin:0" href="index.html?config=1">Servidor</a></div></div></header>
+<main style="max-width:720px">
+  <div class="pilha">
+    <div class="painel">
+      <div class="form">
+        <label>Meu carro<select id="carro"></select></label>
+        <div class="acoes" style="align-self:end" id="status"></div>
+      </div>
+      <p class="aviso" id="gps" style="margin:8px 0 0"></p>
+    </div>
+    <div class="painel destaque"><h2>Corrida atual</h2><div id="atual"></div></div>
+    <div class="painel"><h2>Voz</h2><div id="voz-cfg"></div></div>
+    <div class="painel"><h2>Próximas</h2><div class="lista" id="fila"></div></div>
+    <div class="painel"><div class="mapa-sat" id="mapa"></div><p class="aviso" id="rota-info" style="margin:6px 0 0"></p></div>
+  </div>
+</main>
+<div class="alerta" id="alerta" hidden><div class="painel"><h2>Mensagem da central</h2><p id="al-txt"></p><div class="pilha" style="gap:8px" id="al-op"></div></div></div>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="fixo.js"></script>
+<script src="comum.js"></script>
+<script>
+(async function () {
+  const { $, esc, por, pill, hora, MIN, api, ls } = App;
+  let meu = ls.get('meuCarro'), vistos = new Set(), checVistas = new Set(), primeiro = true;
+  App.painelVoz($('voz-cfg'));
+  await App.iniciar($('con'), { papel: 'operacao' });
+
+  const enviar = async (caminho, dados) => { try { await api(caminho, dados || {}); } catch (e) { App.toast(e.message); } };
+  $('carro').onchange = () => { meu = $('carro').value; ls.set('meuCarro', meu); vistos.clear(); primeiro = true; render(); };
+
+  function render() {
+    const est = App.estado; if (!est) return;
+    const ops = '<option value="">— escolher —</option>' + est.motoristas.map(m => `<option value="${m.id}" ${m.id === meu ? 'selected' : ''}>${esc(m.id)} · ${esc(m.nome)}</option>`).join('');
+    por('carro', ops);
+    const m = est.motoristas.find(x => x.id === meu);
+    if (!m) { por('atual', '<p class="vazio">Escolha o seu carro acima.</p>'); por('fila', ''); por('status', ''); return; }
+    por('status', `${m.modo !== 'real' ? '<button class="btn principal" id="assumir">Assumir este carro</button>' : ''}
+      <button class="btn" id="op">${m.ativo ? 'Sair de operação' : 'Entrar em operação'}</button>${m.ativo ? '' : pill('fora', 'fora de operação')}`);
+    if ($('assumir')) $('assumir').onclick = () => enviar(`/api/motoristas/${m.id}/modo`, { modo: 'real' });
+    $('op').onclick = () => enviar(`/api/motoristas/${m.id}/ativo`, { ativo: !m.ativo });
+
+    const corr = Object.fromEntries(est.corridas.map(c => [c.id, c]));
+    const r = corr[m.atual], fila = m.fila.map(id => corr[id]).filter(Boolean);
+    const ativas = (m.ativas || []).map(id => corr[id]).filter(Boolean);
+    const novas = [...ativas, ...fila].filter(c => c && !vistos.has(c.id));
+    if (novas.length && !primeiro) { App.bip(); App.falar((novas.some(c => c.compartilhada) ? 'Nova corrida compartilhada: ' : 'Nova corrida: ') + novas.map(c => `buscar ${c.solicitante || 'passageiro'} em ${App.nomeLocal(c.origem)}, levar para ${App.nomeLocal(c.destino)}`).join('. ')); }
+    for (const c of [...ativas, ...fila]) if (c) vistos.add(c.id);
+    primeiro = false;
+
+    const paradas = (m.rota && m.rota.paradas) || [];
+    if (!r) por('atual', `<p class="vazio">${m.ativo ? 'Livre. A próxima corrida aparece aqui sozinha.' : 'Fora de operação.'}</p>`);
+    else if (paradas.length) {
+      // viagem compartilhada: o roteiro com as paradas na ordem, cada uma com o seu botão
+      const quem = c => `${esc(c.solicitante || 'passageiro')}${c.matricula ? ' (mat. ' + esc(c.matricula) + ')' : ''} · ${c.passageiros} pessoa(s)`;
+      const lugares = (m.capacidade || 4) - ativas.reduce((s, c) => s + (c.passageiros || 1), 0);
+      por('atual', `<div class="pilha" style="gap:10px">
+        <div class="acoes">${pill('a_caminho', 'viagem compartilhada')}<span>${ativas.length} corridas · ${m.aBordo || 0} a bordo · ${lugares} lugar(es) livre(s)</span></div>
+        <ol class="roteiro">${paradas.map((s, i) => {
+          const c = corr[s.c]; if (!c) return '';
+          const acao = s.t === 'buscar' ? (c.status === 'a_caminho' ? ['cheguei', `Cheguei em ${App.nomeLocal(s.l)}`] : c.status === 'no_local' ? ['embarcou', `${c.solicitante || 'Passageiro'} embarcou`] : null)
+            : c.status === 'em_viagem' ? ['finalizar', `Deixei ${c.solicitante || 'o passageiro'} em ${App.nomeLocal(s.l)}`] : null;
+          return `<li class="${i === 0 ? 'agora' : ''}"><div><b>${s.t === 'buscar' ? 'Buscar' : 'Deixar'}</b> ${quem(c)} <b>${s.t === 'buscar' ? 'em' : 'em'} ${esc(App.nomeLocal(s.l))}</b> <span class="aviso">· por volta de ${hora(s.chega)}</span></div>
+            ${acao ? `<button class="btn ${i === 0 ? 'grande principal' : ''}" data-acao="${acao[0]}" data-id="${c.id}">${esc(acao[1])}</button>` : ''}</li>`;
+        }).join('')}</ol></div>`);
+    } else {
+      const botao = { a_caminho: ['cheguei', 'Cheguei no local'], no_local: ['embarcou', 'Passageiro embarcou'], em_viagem: ['finalizar', 'Finalizar corrida'] }[r.status];
+      por('atual', `<div class="pilha" style="gap:10px">
+        <div class="acoes">${pill(r.status)}<span class="id">${esc(r.id)}</span>${r.urgente ? '<span class="pill s-sem_carro">urgente</span>' : ''}</div>
+        <div class="rota-txt">${esc(App.nomeLocal(r.origem))} → ${esc(App.nomeLocal(r.destino))}</div>
+        <div>${esc(r.solicitante || 'Solicitante não informado')}${r.matricula ? ' · mat. ' + esc(r.matricula) : ''} · ${r.passageiros} pessoa(s)</div>
+        ${botao ? `<button class="btn grande principal" data-acao="${botao[0]}" data-id="${r.id}">${botao[1]}</button>` : ''}</div>`);
+    }
+    por('fila', fila.length ? fila.map(c => `<div class="item"><span class="id">${hora(c.criadoEm)}</span><span>${esc(App.nomeLocal(c.origem))} → ${esc(App.nomeLocal(c.destino))}</span>${pill(c.status)}
+      ${c.status === 'oferecida' ? `<div class="sub acoes"><button class="btn ok" data-acao="aceitar" data-id="${c.id}">Aceitar</button><button class="btn perigo" data-acao="recusar" data-id="${c.id}">Recusar</button><span>aceita sozinho em 60 s</span></div>` : ''}</div>`).join('') : '<p class="vazio">Nenhuma corrida na fila.</p>');
+    App.mapa($('mapa'), { carro: m.id, alvos: paradas.length ? [...new Set(paradas.map(s => s.l))] : r ? [r.origem, r.destino] : [] });
+    por('rota-info', r ? (paradas.length ? 'Linha: o caminho passando pelas paradas, na ordem do roteiro. ' : '') + (m.rota && m.rota.pelaEstrada ? 'Rota pela estrada.' + (paradas.length ? '' : ' Tracejado: até o embarque · linha cheia: até o destino.') : 'Rota em linha reta (trajeto pela estrada ainda não disponível para este trecho).') : '');
+
+    // pergunta da central (carro parado / atrasado)
+    const chk = est.checagens.find(c => c.carro === m.id && !c.respondidaEm && !c.encerrada);
+    $('alerta').hidden = !chk;
+    if (chk) {
+      por('al-txt', esc(chk.texto));
+      const pede = chk.opcoes.some(o => o.pedeDados);
+      const p = chk.passageiro || {};
+      por('al-op', (pede ? `<div class="resposta" style="margin-bottom:4px">Passageiro registrado: <b>${esc(p.nome || '—')}</b>${p.matricula ? ', matrícula <b>' + esc(p.matricula) + '</b>' : ''}</div>` : '')
+        + chk.opcoes.map(o => `<button class="btn grande${o.id === 'ok' || o.id === 'comigo' ? ' ok' : ''}" data-resp="${o.id}" data-k="${chk.id}" ${o.pedeDados ? 'data-pede="1"' : ''}>${esc(o.texto)}</button>`).join('')
+        + (pede ? `<div class="form" style="margin-top:4px"><label>Nome de quem está no carro<input type="text" id="al-nome" autocomplete="off"></label>
+            <label>Matrícula de quem está no carro<input type="text" id="al-mat" inputmode="numeric" autocomplete="off"></label></div>
+            <p class="aviso" style="margin:0">Preencha os dois campos e toque em “Não, é outra pessoa”.</p>` : ''));
+      if (!checVistas.has(chk.id)) { checVistas.add(chk.id); App.bip(); App.falar('Mensagem da central. ' + chk.texto); }
+    }
+  }
+  document.body.addEventListener('click', ev => {
+    const b = ev.target.closest('button'); if (!b) return;
+    if (b.dataset.acao) { b.disabled = true; enviar(`/api/corridas/${b.dataset.id}/${b.dataset.acao}`); }
+    if (b.dataset.resp) {
+      const nome = ($('al-nome') && $('al-nome').value.trim()) || '', mat = ($('al-mat') && $('al-mat').value.replace(/\D/g, '')) || '';
+      if (b.dataset.pede && (!nome || !mat)) { App.toast('Informe o nome e a matrícula de quem está no carro.'); ($('al-nome').value ? $('al-mat') : $('al-nome')).focus(); return; }
+      $('alerta').hidden = true; enviar(`/api/checagens/${b.dataset.k}`, { opcao: b.dataset.resp, ...(b.dataset.pede ? { nome, matricula: mat } : {}) });
+    }
+  });
+  App.ouvintes.push(msg => { if (msg.tipo === 'estado' || msg.tipo === 'locais_ok' || (msg.tipo === 'checagem' && msg.carro === meu)) render(); });
+
+  // GPS do celular → servidor (só quando o carro foi assumido por este aparelho)
+  if (navigator.geolocation) {
+    let ultimo = 0;
+    navigator.geolocation.watchPosition(p => {
+      $('gps').textContent = `GPS: ${p.coords.latitude.toFixed(5)}, ${p.coords.longitude.toFixed(5)} (±${Math.round(p.coords.accuracy)} m)`;
+      const m = App.estado && App.estado.motoristas.find(x => x.id === meu);
+      if (m && m.modo === 'real' && Date.now() - ultimo > 10000) { ultimo = Date.now(); enviar(`/api/motoristas/${meu}/gps`, { lat: p.coords.latitude, lon: p.coords.longitude, precisao: p.coords.accuracy }); }
+    }, e => { $('gps').textContent = 'GPS indisponível: ' + e.message; }, { enableHighAccuracy: true, maximumAge: 5000 });
+  }
+})();
+</script>
+</body></html>

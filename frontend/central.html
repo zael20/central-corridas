@@ -1,0 +1,310 @@
+<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Central de Corridas</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<link rel="stylesheet" href="estilo.css">
+</head><body>
+<header>
+  <div class="topo"><h1>Central de <span>Corridas</span></h1><div class="acoes"><span class="modo" id="con"><i></i> Conectando…</span><a class="aviso" style="margin:0" href="index.html?config=1">Servidor</a></div></div>
+  <nav role="tablist">
+    <button data-aba="operacao" aria-selected="true">Operação</button><button data-aba="radio">Rádio</button><button data-aba="assistente">Assistente</button>
+    <button data-aba="gestao">Gestão</button><button data-aba="frota">Frota</button><button data-aba="locais">Locais</button>
+  </nav>
+</header>
+<main>
+  <p class="falta" id="cfg-erro" hidden></p>
+  <div id="a-operacao" class="grade">
+    <div class="pilha">
+      <div class="painel destaque"><h2>Chamadas</h2><div class="lista" id="chamadas"></div></div>
+      <div class="painel"><h2>Alertas</h2><div class="lista" id="alertas"></div></div>
+      <div class="painel"><h2>Mapa</h2><div class="mapa-sat alto" id="mapa"></div><p class="aviso" style="margin-top:6px" id="mapa-aviso"></p></div>
+    </div>
+    <div class="pilha">
+      <div class="painel"><h2>Carros</h2><div class="lista" id="carros"></div></div>
+      <div class="painel"><h2>Últimos acontecimentos</h2><div class="log" id="log"></div></div>
+    </div>
+  </div>
+
+  <div id="a-radio" class="grade" hidden>
+    <div class="painel"><h2>Pedido recebido pelo rádio</h2><div id="voz"></div>
+      <label class="check" style="margin-top:10px"><input type="checkbox" id="falar-avisos" checked> Falar em voz alta os avisos para o rádio (atualizações, resposta do motorista)</label></div>
+    <div class="pilha"><div class="painel"><h2>Voz da central</h2><div id="voz-cfg"></div></div>
+    <div class="painel"><h2>Frases de exemplo</h2><p class="aviso">Toque numa frase para testar sem falar.</p><div class="exemplos" id="exemplos"></div></div></div>
+  </div>
+
+  <div id="a-assistente" class="pilha" hidden>
+    <div class="kpis" id="ia-kpis"></div>
+    <div class="grade">
+      <div class="painel"><h2>Frases que a IA não entendeu</h2><p class="aviso">As mais repetidas nos últimos 30 dias. Corrija na tabela abaixo para ela aprender.</p><div class="lista" id="ia-nao"></div></div>
+      <div class="painel"><h2>O que a IA já aprendeu</h2><p class="aviso">Correções feitas aqui. Uma frase igual ou bem parecida passa a ser entendida assim.</p><div class="lista" id="ia-aprendeu"></div></div>
+    </div>
+    <div class="painel"><h2>Pessoas (nome ↔ matrícula aprendidos)</h2>
+      <p class="aviso">Cada vez que alguém fala nome e matrícula conta como um voto. O nome que mais se repete vira o oficial ("confirmado"). Dados digitados no app valem 2 votos, a confirmação do motorista vale 3 e a correção da central decide.</p>
+      <div class="tabela" style="max-height:340px" id="pessoas"></div></div>
+    <div class="painel">
+      <div class="acoes" style="justify-content:space-between;margin-bottom:8px"><h2 style="margin:0">Conversas (para treinar a IA)</h2>
+        <div class="acoes"><button class="btn" id="recarregar">Recarregar regras</button><a class="btn" id="csv-conv" download>Baixar conversas (CSV)</a></div></div>
+      <p class="aviso">Se a central entendeu errado, escolha em <b>Corrigir</b> o que a pessoa queria. As regras fixas e as respostas ficam em <b>backend/config/assistente.yaml</b>.</p>
+      <div class="tabela" style="max-height:560px" id="conversas"></div>
+    </div>
+  </div>
+
+  <div id="a-locais" class="grade" hidden>
+    <div class="painel"><h2>Marcar locais no satélite</h2>
+      <div class="form" style="margin-bottom:8px">
+        <label>Local<select id="l-sel"></select></label>
+        <div class="acoes" style="align-self:end"><button class="btn perigo" id="l-limpar" type="button">Apagar posição</button></div>
+      </div>
+      <p class="aviso" id="l-dica">Escolha o local na lista e clique no mapa onde ele fica. Fica salvo no servidor e vale para todos os aparelhos.</p>
+      <div class="mapa-sat alto marcando" id="l-mapa"></div>
+    </div>
+    <div class="pilha">
+      <div class="painel"><h2>Locais</h2><p class="aviso" id="l-resumo"></p><div class="lista" id="l-lista" style="max-height:420px;overflow:auto"></div></div>
+      <div class="painel"><h2>Importar coordenadas</h2>
+        <p class="aviso">Cole aqui o texto do botão “Copiar coordenadas” do painel antigo (formato {"gainf":[-3.25,-47.73], ...}).</p>
+        <textarea rows="4" id="l-json" placeholder='{"gainf":[-3.2505,-47.737]}'></textarea>
+        <div class="acoes" style="margin-top:8px"><button class="btn principal" id="l-importar" type="button">Importar</button></div>
+      </div>
+      <div class="painel"><h2>Códigos de acesso</h2>
+        <p class="aviso">Necessários quando o sistema está na internet. Passe o código de passageiro para quem vai pedir viagem; o da operação é só para a central e os motoristas. Ao trocar, quem estava conectado precisa digitar o código novo.</p>
+        <div class="form">
+          <label>Código de passageiro<input type="text" id="a-pass" autocomplete="off"></label>
+          <label>Código da operação<input type="text" id="a-op" autocomplete="off"></label>
+          <div class="acoes cheia"><button class="btn" id="a-salvar" type="button">Trocar códigos</button></div>
+        </div>
+      </div>
+      <div class="painel"><h2>Mapa e rotas</h2>
+        <div class="form">
+          <label>Chave MapTiler (satélite)<input type="text" id="l-chave" autocomplete="off" placeholder="sem chave: satélite da Esri"></label>
+          <label>Velocidade média nas vias internas (km/h)<input type="number" id="l-vel" min="5" max="80" step="1"></label>
+          <label class="check cheia"><input type="checkbox" id="l-comp"> Viagem compartilhada: carro em rota busca outro passageiro no caminho</label>
+          <label>Atraso máximo para quem já está no carro (min)<input type="number" id="l-desvio" min="0" max="30" step="0.5"></label>
+          <label>Compartilhar se buscar até X min depois do melhor carro sozinho<input type="number" id="l-tol" min="0" max="30" step="0.5"></label>
+          <div class="acoes cheia"><button class="btn" id="l-salvar" type="button">Salvar</button></div>
+        </div>
+        <p class="aviso" id="l-rotas" style="margin-top:8px"></p>
+      </div>
+    </div>
+  </div>
+
+  <div id="a-gestao" class="pilha" hidden>
+    <div class="kpis" id="kpis"></div>
+    <div class="painel"><h2>Por carro</h2><div class="tabela" id="t-carros"></div></div>
+    <div class="painel"><div class="acoes" style="justify-content:space-between"><h2 style="margin:0">Corridas</h2><a class="btn" id="csv" download>Baixar CSV (Excel)</a></div></div>
+  </div>
+
+  <div id="a-frota" class="grade" hidden>
+    <div class="painel"><h2>Carros cadastrados</h2><div class="lista" id="frota"></div></div>
+    <div class="painel"><h2>Cadastrar carro</h2>
+      <form class="form" id="f-form">
+        <label>Código<input type="text" id="f-id" placeholder="Ex.: V05" required></label>
+        <label>Motorista<input type="text" id="f-nome" required></label>
+        <label>Lugares<input type="number" id="f-cap" min="1" max="15" value="4"></label>
+        <label>Começa em<select id="f-base"></select></label>
+        <label class="check cheia"><input type="checkbox" id="f-sim" checked> Simulado (anda sozinho, para testes)</label>
+        <div class="acoes cheia"><button class="btn principal" type="submit">Cadastrar</button></div>
+      </form>
+    </div>
+  </div>
+</main>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="fixo.js"></script>
+<script src="comum.js"></script>
+<script>
+(async function () {
+  const { $, esc, por, pill, hora, MIN, api, SERVIDOR } = App;
+  let aba = 'operacao';
+  document.querySelectorAll('[data-aba]').forEach(b => b.onclick = () => {
+    aba = b.dataset.aba;
+    document.querySelectorAll('[data-aba]').forEach(x => x.setAttribute('aria-selected', x === b));
+    for (const id of ['operacao', 'radio', 'assistente', 'gestao', 'frota', 'locais']) $('a-' + id).hidden = id !== aba;
+    render(); if (aba === 'assistente') conversas(); if (aba === 'gestao') gestao(); if (aba === 'locais') renderLocais(true);
+  });
+  $('csv').href = App.comToken(SERVIDOR + '/api/corridas.csv'); $('csv-conv').href = App.comToken(SERVIDOR + '/api/conversas.csv');
+
+  const voz = App.caixaVoz($('voz'), { canal: 'radio' });
+  App.painelVoz($('voz-cfg'));
+  const EXEMPLOS = ['Eu sou Mizael Souza, matrícula 45871, preciso de um pool da oficina para a Gaing', 'eu sou a Ana Paula matrícula 3321 preciso de um pool do refeitório pra usina, duas pessoas',
+    'Mizael, matrícula 45871, onde está meu carro?', 'matrícula 45871, o carro não chegou, aconteceu alguma coisa?', 'cancela meu pool, matrícula 3321',
+    'Eu sou Mizael, matrícula 45871, quero cancelar a viagem', 'Mizael 45871, o carro saiu sem mim, eu ainda estou aqui', 'matrícula 45871, o aplicativo diz que o carro chegou mas não estou vendo o carro',
+    'Mizael, matrícula 45871, quero fazer uma reclamação, o motorista estava correndo demais','Mizael, matrícula 45871, eu vi que a viagem já começou no aplicativo, mas eu não entrei no carro. O que aconteceu?',
+    'Base, fala Carlos, estou no refeitório e preciso ir pra GAINF', 'carro para o ambulatório urgente, acidente na britagem'];
+  $('exemplos').innerHTML = EXEMPLOS.map((e, i) => `<button class="btn" data-ex="${i}">${esc(e)}</button>`).join('');
+  $('exemplos').onclick = ev => { const b = ev.target.closest('[data-ex]'); if (b) { voz.definir(EXEMPLOS[b.dataset.ex]); voz.enviar(); } };
+
+  await App.iniciar($('con'), { papel: 'operacao' });
+  $('f-base').innerHTML = App.locais.map(l => `<option value="${l.id}">${esc(l.nome)}</option>`).join('');
+  $('f-form').onsubmit = async ev => { ev.preventDefault(); try { await api('/api/motoristas', { id: $('f-id').value.trim(), nome: $('f-nome').value.trim(), capacidade: +$('f-cap').value || 4, base: $('f-base').value, simulado: $('f-sim').checked }); ev.target.reset(); } catch (e) { App.toast(e.message); } };
+
+  const vistas = new Set(); let primeiro = true;
+  // "Por que este carro?": a conta que o despacho fez para cada carro no momento do pedido
+  const abertos = new Set();
+  document.body.addEventListener('toggle', ev => { const d = ev.target; if (d.dataset && d.dataset.porque) d.open ? abertos.add(d.dataset.porque) : abertos.delete(d.dataset.porque); }, true);
+  const f1 = v => v == null ? '—' : (Math.round(v * 10) / 10).toString().replace('.', ',');
+  function porQue(c) {
+    const d = c.decisao, ST = { a_caminho: 'indo buscar', no_local: 'esperando passageiro', em_viagem: 'levando passageiro' };
+    const corr = Object.fromEntries((App.estado ? App.estado.corridas : []).map(x => [x.id, x]));
+    const linhas = d.candidatos.map(l => l.fora
+      ? `<tr class="fora"><td>${esc(l.carro)}</td><td colspan="5">não entra: ${esc(l.fora)}</td><td></td></tr>`
+      : l.compartilhada
+      ? `<tr class="${l.escolhido ? 'ganhou' : ''}"><td><b>${esc(l.carro)}</b> ${esc(l.nome || '')}</td>
+          <td>compartilhada: já em rota com ${esc(l.outras.map(i => (corr[i] && corr[i].solicitante) || 'outro passageiro').join(', '))} · ${l.lugaresLivres} lugar(es) livre(s) · atraso para quem já está no carro: ${f1(l.atrasoOutrosMin)} min</td>
+          <td class="n">—</td><td class="n">${f1(l.kmAteOrigem)} km</td><td class="n">${f1(l.deslocamentoMin)}</td>
+          <td class="n"><b>${f1(l.chegaEmMin)}</b></td><td>${l.escolhido ? pill('concluida', 'escolhido · busca no caminho') : ''}</td></tr>`
+      : `<tr class="${l.escolhido ? 'ganhou' : ''}"><td><b>${esc(l.carro)}</b> ${esc(l.nome || '')}</td>
+          <td>${l.livre ? 'livre' : l.atual ? esc(ST[l.atual.status] || l.atual.status) + ' ' + esc(App.nomeLocal(l.atual.origem)) + '→' + esc(App.nomeLocal(l.atual.destino)) : 'só fila'}${l.fila ? ` · +${l.fila} na fila` : ''}</td>
+          <td class="n">${l.livre ? '0' : f1(l.terminaEmMin)}</td><td class="n">${f1(l.kmAteOrigem)} km</td><td class="n">${f1(l.deslocamentoMin)}</td>
+          <td class="n"><b>${f1(l.chegaEmMin)}</b></td><td>${l.escolhido ? pill('concluida', l.livre ? 'escolhido · vai direto' : 'escolhido · oferecida') : ''}</td></tr>`).join('');
+    const venc = d.candidatos.find(l => l.escolhido), livreMaisPerto = d.candidatos.filter(l => !l.fora && l.livre).sort((a, b) => a.kmAteOrigem - b.kmAteOrigem)[0];
+    let frase = venc ? `Ganhou o ${venc.carro} porque chega primeiro em ${App.nomeLocal(c.origem)}: ${f1(venc.chegaEmMin)} min.` : 'Nenhum carro pôde atender: o pedido ficou na fila geral.';
+    if (venc && venc.compartilhada) frase = `Viagem compartilhada: o ${venc.carro} já estava em rota, tinha ${venc.lugaresLivres} lugar(es) livre(s) e passa perto de ${App.nomeLocal(c.origem)}. Busca em ${f1(venc.chegaEmMin)} min e atrasa quem já estava no carro em ${f1(venc.atrasoOutrosMin)} min (limite ${(App.estado && App.estado.desvioMaxMin) || 6} min). Paradas: ${venc.paradas.map(s => (s.t === 'buscar' ? 'buscar' : 'deixar') + ' em ' + App.nomeLocal(s.l)).join(' → ')}.`;
+    else if (venc && !venc.livre) frase += ` Mesmo ocupado, ele termina o que está fazendo em ${f1(venc.terminaEmMin)} min e chega antes dos outros${livreMaisPerto ? ` (o livre mais próximo, ${livreMaisPerto.carro}, levaria ${f1(livreMaisPerto.chegaEmMin)} min)` : ''}. Por isso a corrida é oferecida a ele e ele aceita ou recusa.`;
+    else if (venc) frase += ' Ele está livre, então a corrida vai direto para ele.';
+    if (d.urgente) frase += ' Urgente: entra na frente da fila do carro.';
+    return `<p class="aviso" style="margin:6px 0">${esc(frase)}</p><div class="tabela"><table><thead><tr><th>Carro</th><th>Agora</th><th class="n">Termina o que tem (min)</th><th class="n">Distância até a origem</th><th class="n">Deslocamento (min)</th><th class="n">Chega em (min)</th><th></th></tr></thead><tbody>${linhas}</tbody></table></div>
+      <p class="aviso" style="margin:4px 0 0">Chega em = termina o que tem (corrida atual + fila) + deslocamento pela estrada até ${esc(App.nomeLocal(c.origem))}. Conta feita às ${hora(d.em)}.</p>`;
+  }
+  function render() {
+    const est = App.estado; if (!est) return;
+    $('cfg-erro').hidden = !est.configErro; $('cfg-erro').textContent = est.configErro ? 'Erro no arquivo de regras do assistente (usando a versão anterior): ' + est.configErro : '';
+    const t = est.agora, corr = Object.fromEntries(est.corridas.map(c => [c.id, c])), mot = Object.fromEntries(est.motoristas.map(m => [m.id, m]));
+    const abertas = est.corridas.filter(c => !['concluida', 'cancelada'].includes(c.status) || t - (c.finalizadoEm || c.canceladoEm || 0) < 10 * MIN).slice(0, 12);
+    if (!primeiro && abertas.some(c => !vistas.has(c.id))) App.bip();
+    abertas.forEach(c => vistas.add(c.id)); primeiro = false;
+    por('chamadas', abertas.length ? abertas.map(c => {
+      const m = mot[c.carro];
+      const quem = `<b>${esc(c.solicitante || 'Solicitante não identificado')}</b>${c.matricula ? ' (mat. ' + esc(c.matricula) + ')' : ''}`;
+      const sub = m ? `Veículo <b>${esc(m.id)}</b> · ${esc(m.nome)} vai atender${c.etaAgora ? ' · chega em ' + Math.max(0, Math.round((c.etaAgora - t) / MIN)) + ' min' : ''}${m.paradoMin >= 2 && c.status === 'a_caminho' ? ` · <span class="falta">parado há ${Math.round(m.paradoMin)} min</span>` : ''}`
+        : c.status === 'sem_carro' ? '<span class="falta">Sem veículo disponível · na fila de espera</span>' : '';
+      const botoes = ['agendada', 'sem_carro', 'oferecida', 'na_fila', 'a_caminho'].includes(c.status)
+        ? `${c.carro ? `<button class="btn" data-checar="${c.id}">Perguntar ao motorista</button>` : ''}<button class="btn perigo" data-cancelar="${c.id}">Cancelar</button>` : '';
+      return `<div class="item"><span class="id">${hora(c.criadoEm)}</span><span>${quem} está solicitando um pool: <b>${esc(App.nomeLocal(c.origem))} → ${esc(App.nomeLocal(c.destino))}</b> · ${c.passageiros} passageiro(s)${c.urgente ? ' · <span class="falta">URGENTE</span>' : ''}${c.compartilhada ? ' · <b>compartilhada</b>' : ''}</span>${pill(c.status)}
+        <div class="sub">${sub} · via ${esc(c.canal)}</div>${c.ocorrencia ? `<div class="sub falta">Ocorrência: ${esc(c.ocorrencia)}</div>` : ''}${botoes ? `<div class="sub acoes">${botoes}</div>` : ''}
+        ${c.decisao ? `<details class="sub porque" ${abertos.has(c.id) ? 'open' : ''} data-porque="${c.id}"><summary>Por que este carro?</summary>${porQue(c)}</details>` : ''}</div>`;
+    }).join('') : '<p class="vazio">Nenhuma chamada.</p>');
+
+    const chks = est.checagens.slice().sort((a, b) => b.criadoEm - a.criadoEm).slice(0, 8);
+    por('alertas', chks.length ? chks.map(k => `<div class="item"><span class="id">${hora(k.criadoEm)}</span><span>Veículo <b>${esc(k.carro)}</b>: ${k.motivo === 'parado' ? 'parado' : k.motivo === 'atraso' ? 'atrasado' : k.motivo === 'embarque' ? '<span class="falta">passageiro diz que não embarcou</span>' : k.motivo === 'encontro' ? '<span class="falta">passageiro não encontra o carro</span>' : 'pergunta da central'}${k.avisar ? ' · passageiro aguardando resposta' : ''}</span>
+      ${k.respondidaEm ? pill('concluida', 'respondeu') : k.semResposta ? pill('sem_carro', 'sem resposta') : pill('oferecida', 'aguardando')}
+      <div class="sub">${k.respondidaEm ? 'Motorista: ' + esc(k.respostaTexto) : k.semResposta ? 'Motorista não respondeu. Chame pelo rádio.' : esc(k.texto)}</div></div>`).join('') : '<p class="vazio">Nenhum alerta.</p>');
+
+    por('carros', est.motoristas.map(m => `<div class="item"><span class="cor" style="background:${App.corDe(m.id)}"></span><span><b>${esc(m.id)}</b> ${esc(m.nome)} · ${m.capacidade} lugares · ${esc(m.modo)}</span>
+      ${!m.ativo ? pill('fora', 'fora') : m.atual ? pill(corr[m.atual].status) : pill('livre', 'livre')}
+      <div class="sub">Perto de ${esc(m.onde)}${(m.ativas || []).length > 1 ? ` · compartilhada: ${m.ativas.length} corridas, ${m.aBordo || 0} a bordo` : m.atual ? ` · ${esc(App.nomeLocal(corr[m.atual].origem))} → ${esc(App.nomeLocal(corr[m.atual].destino))}` : ''}${m.fila.length ? ' · fila: ' + m.fila.length : ''}${m.paradoMin >= 1 && m.atual ? ' · parado ' + Math.round(m.paradoMin) + ' min' : ''}</div>
+      <div class="sub acoes"><button class="btn" data-ativo="${m.id}" data-v="${!m.ativo}">${m.ativo ? 'Tirar de operação' : 'Pôr em operação'}</button>
+        ${m.modo === 'simulado' || m.modo === 'pane' ? `<button class="btn${m.modo === 'pane' ? ' perigo' : ''}" data-pane="${m.id}" data-v="${m.modo !== 'pane'}">${m.modo === 'pane' ? 'Tirar pane (simulação)' : 'Simular pane'}</button>` : `<button class="btn" data-modo="${m.id}">Voltar a simulado</button>`}</div></div>`).join(''));
+    por('log', est.eventos.map(e => `<div><span>${hora(e.em)}</span> ${esc(e.texto)}</div>`).join(''));
+    if (aba === 'operacao') App.mapa($('mapa'));
+    const cm = App.cfgMapa || {};
+    por('mapa-aviso', `${cm.locaisMarcados || 0} de ${cm.locaisTotal || App.locais.length} locais marcados no satélite (amarelo = posição real; cinza = provisória, marque na aba Locais) · rotas ${est.rotasPelaEstrada ? 'pela estrada' : 'em linha reta (sem rota pela estrada ainda)'}.`);
+    if (aba === 'locais') renderLocais();
+    por('frota', est.motoristas.map(m => `<div class="item"><span class="cor" style="background:${App.corDe(m.id)}"></span><span><b>${esc(m.id)}</b> ${esc(m.nome)} · ${m.capacidade} lugares · ${esc(m.modo)}</span><button class="btn perigo" data-remover="${m.id}">Remover</button></div>`).join(''));
+  }
+
+  const env = async (c, d) => { try { await api(c, d || {}); } catch (e) { App.toast(e.message); } };
+  document.body.addEventListener('click', ev => {
+    const b = ev.target.closest('button'); if (!b) return; const d = b.dataset;
+    if (d.checar) env(`/api/corridas/${d.checar}/checar`);
+    if (d.cancelar && confirm('Cancelar esta corrida?')) env(`/api/corridas/${d.cancelar}/cancelar`, { motivo: 'cancelado pela central' });
+    if (d.ativo) env(`/api/motoristas/${d.ativo}/ativo`, { ativo: d.v === 'true' });
+    if (d.pane) env(`/api/motoristas/${d.pane}/pane`, { ligar: d.v === 'true' });
+    if (d.modo) env(`/api/motoristas/${d.modo}/modo`, { modo: 'simulado' });
+    if (d.remover && confirm('Remover o carro ' + d.remover + '?')) env(`/api/motoristas/${d.remover}/remover`);
+  });
+  $('recarregar').onclick = async () => { const r = await api('/api/assistente/recarregar', {}); App.toast(r.ok ? 'Regras recarregadas.' : 'Erro no arquivo: ' + r.erro); conversas(); };
+
+  const NOME_INT = { pedir: 'Pedir carro', informacao: 'Informação da viagem', cancelar: 'Cancelar', nao_embarquei: 'Não embarcou (viagem começou sem ele)',
+    nao_encontrei: 'Não encontra o carro / local errado', reclamacao: 'Reclamação', desconhecida: 'Não entendeu' };
+  const FONTE = { regras: 'regras', aprendido: 'aprendido', llm: 'IA paga', 'regras+contexto': 'regras + situação da viagem', 'aprendido+contexto': 'aprendido + situação da viagem', 'llm+contexto': 'IA paga + situação da viagem' };
+  async function conversas() {
+    const [cs, an, ps] = await Promise.all([api('/api/conversas?limite=200'), api('/api/assistente/analise'), api('/api/pessoas')]);
+    por('pessoas', ps.length ? `<table><thead><tr><th>Matrícula</th><th>Nome</th><th>Situação</th><th class="n">Vezes</th><th>Como já foi ouvido</th><th></th></tr></thead><tbody>${ps.map(p => `<tr>
+      <td><b>${esc(p.matricula)}</b></td><td>${esc(p.nome)}</td><td>${p.confirmado ? pill('concluida', 'confirmado') : pill('oferecida', 'aprendendo')}</td><td class="n">${p.vezes}</td>
+      <td style="white-space:normal;min-width:200px">${esc(p.variantes.join(' · '))}</td><td><button class="btn" data-pessoa="${esc(p.matricula)}" data-nome="${esc(p.nome)}">Corrigir nome</button></td></tr>`).join('')}</tbody></table>` : '<p class="vazio">Ninguém ainda.</p>');
+    const p = v => v == null ? '—' : String(v).replace('.', ',') + '%';
+    por('ia-kpis', [['Conversas (30 dias)', an.total], ['Entendidas', p(an.entendidasPct)], ['Não entendidas', an.desconhecidas], ['Pedido incompleto', an.incompletas],
+      ['Corrigidas por você', an.corrigidas], ['Frases aprendidas', an.exemplos.length], ['Pelo aprendizado', an.porFonte.aprendido || 0], ['Cancelamentos / não embarcou', (an.porIntencao.cancelar || 0) + ' / ' + (an.porIntencao.nao_embarquei || 0)]]
+      .map(([n, v]) => `<div class="kpi"><small>${n}</small><b>${v}</b></div>`).join(''));
+    por('ia-nao', an.naoEntendidas.length ? an.naoEntendidas.map(x => `<div class="item"><span class="id">${x.vezes}×</span><span>${esc(x.texto)}</span></div>`).join('') : '<p class="vazio">Nada pendente.</p>');
+    por('ia-aprendeu', an.exemplos.length ? an.exemplos.map(e => `<div class="item"><span class="id">${esc(NOME_INT[e.intencao] || e.intencao)}</span><span>${esc(e.texto)}</span><button class="btn" data-esquecer="${esc(e.texto)}">Esquecer</button></div>`).join('') : '<p class="vazio">Nenhuma correção ainda.</p>');
+    const opc = sel => '<option value="">Corrigir…</option>' + an.intencoes.map(i => `<option value="${i}" ${i === sel ? 'selected' : ''}>${esc(NOME_INT[i])}</option>`).join('');
+    por('conversas', `<table><thead><tr><th>Hora</th><th>Canal</th><th>Quem</th><th>Falado</th><th>Entendido</th><th>Resposta</th><th>Corrigir</th></tr></thead><tbody>${cs.map(c => `<tr>
+      <td>${hora(c.em)}</td><td>${esc(c.canal)}</td><td>${esc(c.nome || '')}${c.matricula ? ' · ' + esc(c.matricula) : ''}</td><td style="white-space:normal;min-width:220px">${esc(c.texto)}</td>
+      <td>${esc(NOME_INT[c.intencao] || c.intencao)} <span class="aviso">(${esc(FONTE[c.fonte] || c.fonte)})</span>${c.corrigidaPara ? `<div class="falta">corrigido: ${esc(NOME_INT[c.corrigidaPara])}</div>` : ''}</td>
+      <td style="white-space:normal;min-width:260px">${esc(c.resposta)}</td><td><select data-ensinar="${c.n}">${opc(c.corrigidaPara)}</select></td></tr>`).join('')}</tbody></table>`);
+  }
+  document.body.addEventListener('change', async ev => {
+    const s = ev.target.closest('[data-ensinar]'); if (!s || !s.value) return;
+    try { await api('/api/assistente/ensinar', { conversa: +s.dataset.ensinar, intencao: s.value }); App.toast('Aprendido. Frases iguais ou parecidas passam a ser entendidas assim.'); conversas(); }
+    catch (e) { App.toast(e.message); }
+  });
+  document.body.addEventListener('click', async ev => {
+    const bp = ev.target.closest('[data-pessoa]');
+    if (bp) {
+      const nome = prompt('Nome correto da matrícula ' + bp.dataset.pessoa + ':', bp.dataset.nome);
+      if (nome && nome.trim()) { try { await api('/api/pessoas/' + encodeURIComponent(bp.dataset.pessoa), { nome: nome.trim() }); App.toast('Cadastro corrigido.'); conversas(); } catch (e) { App.toast(e.message); } }
+      return;
+    }
+    const b = ev.target.closest('[data-esquecer]'); if (!b) return;
+    await api('/api/assistente/esquecer', { texto: b.dataset.esquecer, intencao: 'pedir' }); conversas();
+  });
+
+  // ---------- aba Locais: marcar os pontos no satélite ----------
+  let lSel = '';
+  function renderLocais(primeiraVez) {
+    const ls = App.locais.slice().sort((a, b) => (a.real - b.real) || a.nome.localeCompare(b.nome));
+    if (!lSel) lSel = (ls.find(l => !l.real) || ls[0]).id;
+    por('l-sel', ls.map(l => `<option value="${l.id}" ${l.id === lSel ? 'selected' : ''}>${l.real ? '✓ ' : '○ '}${esc(l.nome)}</option>`).join(''));
+    const n = App.locais.filter(l => l.real).length;
+    por('l-resumo', `${n} de ${App.locais.length} marcados. ○ = posição provisória (ainda não marcada).`);
+    por('l-lista', ls.map(l => `<div class="item" style="cursor:pointer" data-lsel="${l.id}"><span class="id">${l.real ? '✓' : '○'}</span><span><b>${esc(l.nome)}</b>${l.real ? ` · ${l.lat.toFixed(5)}, ${l.lon.toFixed(5)}` : ' · <span class="aviso">não marcado</span>'}</span>${l.id === lSel ? pill('a_caminho', 'selecionado') : ''}</div>`).join(''));
+    const cm = App.cfgMapa || {};
+    if (primeiraVez) { $('l-chave').value = cm.maptilerKey || ''; $('l-vel').value = cm.velocidadeKmh || 30;
+      $('l-comp').checked = cm.compartilhar !== false; $('l-desvio').value = cm.desvioMaxMin ?? 6; $('l-tol').value = cm.toleranciaCompartilharMin ?? 4; }
+    por('l-rotas', n < 2 ? 'Rotas pela estrada: marque os locais no satélite. Com as posições provisórias, as distâncias usam linha reta × 1,3. Trechos de via interna que não existem no OpenStreetMap também ficam em linha reta.'
+      : App.estado && App.estado.rotasPelaEstrada ?'Rotas pela estrada: OK (OpenStreetMap/OSRM). O tempo de cada trecho = distância pela estrada ÷ velocidade acima; trechos com tempo medido na planilha usam o medido. Via interna que não existe no OpenStreetMap fica em linha reta × 1,3.'
+      : 'Rotas pela estrada: calculando ou sem internet. Enquanto isso, as distâncias usam linha reta × 1,3.');
+    App.mapa($('l-mapa'), { alvos: [lSel], rotulos: true, aoClicar: async ll => {
+      try { await api(`/api/locais/${lSel}/posicao`, { lat: ll.lat, lon: ll.lng }); App.toast(App.nomeLocal(lSel) + ' marcado');
+        const prox = App.locais.find(l => !l.real && l.id !== lSel); if (prox) lSel = prox.id; }
+      catch (e) { App.toast(e.message); }
+    } });
+  }
+  $('l-sel').onchange = () => { lSel = $('l-sel').value; renderLocais(); const l = App.LC[lSel]; if (l && $('l-mapa')._mapa) $('l-mapa')._mapa.map.panTo([l.lat, l.lon]); };
+  $('l-lista').onclick = ev => { const it = ev.target.closest('[data-lsel]'); if (it) { lSel = it.dataset.lsel; renderLocais(); const l = App.LC[lSel]; if ($('l-mapa')._mapa) $('l-mapa')._mapa.map.panTo([l.lat, l.lon]); } };
+  $('l-limpar').onclick = async () => { if (confirm('Apagar a posição marcada de ' + App.nomeLocal(lSel) + '?')) { try { await api(`/api/locais/${lSel}/limpar`, {}); } catch (e) { App.toast(e.message); } } };
+  $('l-importar').onclick = async () => {
+    let j; try { j = JSON.parse($('l-json').value.trim()); } catch (e) { return App.toast('Texto inválido: cole exatamente o que o botão "Copiar coordenadas" copiou.'); }
+    try { const r = await api('/api/locais/importar', { pontos: j }); App.toast(`${r.importados} pontos importados (${r.marcados} marcados no total).`); $('l-json').value = ''; }
+    catch (e) { App.toast(e.message); }
+  };
+  api('/api/acesso').then(a => { $('a-pass').value = a.passageiro; $('a-op').value = a.operacao; }).catch(() => {});
+  $('a-salvar').onclick = async () => {
+    if (!confirm('Trocar os códigos? Todo mundo vai precisar digitar o código novo.')) return;
+    try { await api('/api/acesso', { passageiro: $('a-pass').value.trim(), operacao: $('a-op').value.trim() }); App.toast('Códigos trocados.'); App.ls.set('acesso', ''); location.reload(); }
+    catch (e) { App.toast(e.message); }
+  };
+  $('l-salvar').onclick = async () => {
+    try { await api('/api/mapa/config', { maptilerKey: $('l-chave').value.trim(), velocidadeKmh: +$('l-vel').value || null, compartilhar: $('l-comp').checked,
+      desvioMaxMin: $('l-desvio').value === '' ? null : +$('l-desvio').value, toleranciaCompartilharMin: $('l-tol').value === '' ? null : +$('l-tol').value }); App.toast('Salvo.'); }
+    catch (e) { App.toast(e.message); }
+  };
+  async function gestao() {
+    const ind = await api('/api/indicadores'), s = ind.resumo, f = v => v == null ? '—' : v.toFixed(1).replace('.', ',');
+    por('kpis', [['Corridas', s.total], ['Concluídas', s.concluidas], ['Espera média', f(s.esperaMedia) + ' min'], ['Espera p90', f(s.esperaP90) + ' min'],
+      ['Deslocamento médio', f(s.deslocamentoMedio) + ' min'], ['Viagem média', f(s.viagemMedia) + ' min'], ['Erro da previsão', f(s.erroEtaMedio) + ' min'], ['Rádio / App', s.porCanal.radio + ' / ' + s.porCanal.app], ['Canceladas', s.canceladas], ['Ocorrências', s.ocorrencias || 0]]
+      .map(([n, v]) => `<div class="kpi"><small>${n}</small><b>${v}</b></div>`).join('') + '<div class="kpi ref"><small>Referência planilha 2025</small><b>6,2 min</b><i>espera média</i></div>');
+    por('t-carros', `<table><thead><tr><th>Carro</th><th class="n">Corridas</th><th class="n">Recusas</th><th class="n">Ocioso médio</th><th class="n">Km vazio</th><th class="n">Km c/ passageiro</th></tr></thead><tbody>${ind.carros.map(c => `<tr>
+      <td>${esc(c.id)} · ${esc(c.nome)}</td><td class="n">${c.corridas}</td><td class="n">${c.recusas}</td><td class="n">${f(c.ociosoMedio)}</td><td class="n">${f(c.kmVazio)}</td><td class="n">${f(c.kmComPassageiro)}</td></tr>`).join('')}</tbody></table>`);
+  }
+
+  App.ouvintes.push(msg => {
+    if (msg.tipo === 'estado' || msg.tipo === 'locais_ok') render();
+    if (msg.tipo === 'locais_ok' && aba === 'locais') renderLocais(true);
+    if (msg.tipo === 'fala') { App.toast(msg.texto, 9000); if ($('falar-avisos').checked && msg.canal === 'radio') App.falar(msg.texto); }
+    if (msg.tipo === 'alerta') { App.bip(); App.toast(msg.texto, 12000); App.falar(msg.texto); }
+    if (msg.tipo === 'checagem') App.toast(`Perguntando ao motorista do ${msg.carro} se está tudo bem.`);
+  });
+})();
+</script>
+</body></html>

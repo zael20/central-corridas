@@ -1,0 +1,29 @@
+// Monta um APK de um app só (Passageiro ou Motorista):
+//   APP=passageiro node scripts/preparar.js   (ou APP=motorista)
+// 1) copia ../frontend para www  2) fixa o app escolhido  3) gera capacitor.config.json com nome/id próprios
+// 4) se a pasta android já existe, garante as permissões (microfone, GPS, http na rede interna).
+const fs = require('fs'), path = require('path');
+const APP = process.env.APP || 'passageiro';
+const NOMES = { passageiro: ['Pool Passageiro', 'br.com.corridas.passageiro'], motorista: ['Pool Motorista', 'br.com.corridas.motorista'] };
+if (!NOMES[APP]) throw new Error('APP deve ser passageiro ou motorista');
+const raiz = path.join(__dirname, '..'), www = path.join(raiz, 'www');
+fs.rmSync(www, { recursive: true, force: true });
+fs.cpSync(path.join(raiz, '..', 'frontend'), www, { recursive: true });
+fs.writeFileSync(path.join(www, 'fixo.js'), `window.APP_FIXO = ${JSON.stringify(APP)};\n`);
+fs.writeFileSync(path.join(raiz, 'capacitor.config.json'), JSON.stringify({
+  appId: NOMES[APP][1], appName: NOMES[APP][0], webDir: 'www',
+  // servidor da central roda em http na rede interna; sem isso o Android bloqueia
+  server: { androidScheme: 'http', cleartext: true },
+  android: { allowMixedContent: true },
+}, null, 2));
+const manifesto = path.join(raiz, 'android', 'app', 'src', 'main', 'AndroidManifest.xml');
+if (fs.existsSync(manifesto)) {
+  let m = fs.readFileSync(manifesto, 'utf8');
+  const perms = ['android.permission.INTERNET', 'android.permission.RECORD_AUDIO', 'android.permission.ACCESS_FINE_LOCATION', 'android.permission.ACCESS_COARSE_LOCATION', 'android.permission.VIBRATE'];
+  for (const p of perms) if (!m.includes(p)) m = m.replace('</manifest>', `    <uses-permission android:name="${p}" />\n</manifest>`);
+  // reconhecimento de voz do Google precisa ser "visível" para o app (Android 11+)
+  if (!m.includes('android.speech.RecognitionService')) m = m.replace('</manifest>', '    <queries><intent><action android:name="android.speech.RecognitionService" /></intent><intent><action android:name="android.intent.action.TTS_SERVICE" /></intent></queries>\n</manifest>');
+  if (!m.includes('usesCleartextTraffic')) m = m.replace('<application', '<application android:usesCleartextTraffic="true"');
+  fs.writeFileSync(manifesto, m);
+}
+console.log(`Pronto: ${NOMES[APP][0]} (${NOMES[APP][1]})`);

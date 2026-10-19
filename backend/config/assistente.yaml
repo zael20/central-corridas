@@ -1,0 +1,463 @@
+# Assistente da central (rádio e app).
+# É AQUI que a IA é "treinada": frases que ela reconhece, o que ela responde e os limites de alerta.
+# Depois de editar, salve o arquivo. O servidor recarrega sozinho em até 5 s (ou use Central → Assistente → Recarregar).
+# Nada no aplicativo (frontend) precisa mudar.
+#
+# Variáveis que podem ser usadas nas respostas (entre chaves):
+#   {nome} primeiro nome · {matricula} · {origem} · {destino} · {veiculo} número do carro · {motorista}
+#   {min} minutos até chegar (número) · {minutos} "1 minuto"/"5 minutos" · {hora} hora prevista · {posicao} posição na fila · {antes} atendimentos antes
+#   {onde} local mais próximo do carro · {km} distância até você · {parado_min} minutos parado
+#   {resposta_motorista} o que o motorista respondeu · {status} situação da corrida · {hora_fim} hora que terminou
+
+# ------------------------------------------------------------------
+# Intenções: o que a pessoa quer. A primeira lista em que alguma expressão aparecer no texto vence
+# (texto comparado sem acento e em minúsculas; palavras longas toleram 1 letra errada). Ordem importa.
+# Além das listas, a central olha a situação da viagem da pessoa: se a viagem já começou e ela diz que
+# "ainda está esperando", vira "nao_embarquei"; se ela já tem viagem aberta e "pede" de novo o mesmo trajeto,
+# vira "informacao" (não cria pedido duplicado). "nao_embarquei" e "nao_encontrei" com viagem que ainda não
+# começou respondem a situação da viagem, então frases mais amplas nessas listas não fazem estrago.
+intencoes:
+  # a viagem aparece como iniciada / o carro foi embora, mas a pessoa não entrou no carro
+  nao_embarquei:
+    - nao entrei
+    - nao embarquei
+    - nao subi
+    - nao peguei o carro
+    - nao peguei o pool
+    - nao estou no carro
+    - nao to no carro
+    - nao tou no carro
+    - nao estou dentro
+    - eu nao estou nele
+    - ainda estou aqui no ponto
+    - continuo aqui
+    - fiquei aqui
+    - fiquei para tras
+    - fiquei pra tras
+    - outra pessoa embarcou
+    - outra pessoa entrou
+    - outra pessoa pegou
+    - outra pessoa no meu lugar
+    - outra pessoa foi
+    - outro passageiro
+    - pegou outra pessoa
+    - levou outra pessoa
+    - levou outro
+    - pegou outro
+    - no meu lugar
+    - foi embora sem mim
+    - foi sem mim
+    - saiu sem mim
+    - partiu sem mim
+    - seguiu sem mim
+    - sem mim
+    - sem me esperar
+    - sem esperar
+    - nao esperou
+    - nao me esperou
+    - nao me levou
+    - nao me pegou
+    - nao me buscou
+    - me deixou
+    - me largou
+    - me esqueceu
+    - esqueceu de mim
+    - passou direto
+    - passou reto
+    - passou e nao parou
+    - nao parou
+    - o carro foi embora
+    - o carro ja foi
+    - o carro saiu
+    - o veiculo saiu
+    - o motorista saiu
+    - o motorista foi embora
+    - iniciou a viagem sozinho
+    - saiu sozinho
+    - foi sozinho
+    - deu inicio
+    - iniciou a viagem
+    - viagem ja comecou
+    - viagem comecou
+    - ja comecou a viagem
+    - ja iniciou
+    - ja esta em viagem
+    - aparece em viagem
+    - ja aparece que comecou
+    - mostra que eu embarquei
+    - diz que eu embarquei
+    - fala que eu embarquei
+    - marcou que eu embarquei
+    - nao estou indo
+  # o carro chegou (no app) mas a pessoa não acha o carro / foi para o lugar errado
+  nao_encontrei:
+    - nao encontro o carro
+    - nao encontrei o carro
+    - nao estou encontrando
+    - nao to encontrando
+    - nao estao achando
+    - nao estou achando
+    - nao to achando
+    - nao acho o carro
+    - nao achei o carro
+    - nao achei o veiculo
+    - nao estou vendo o carro
+    - nao to vendo o carro
+    - nao vejo o carro
+    - nao vi o carro
+    - nao vi carro nenhum
+    - nao tem carro aqui
+    - nao tem nenhum carro
+    - o carro nao esta aqui
+    - carro nao ta aqui
+    - o motorista nao esta aqui
+    - diz que chegou
+    - fala que chegou
+    - mostra que chegou
+    - aparece que chegou
+    - chegou mas nao
+    - lugar errado
+    - local errado
+    - ponto errado
+    - endereco errado
+    - foi para outro lugar
+    - foi pra outro lugar
+    - esta em outro lugar
+    - ta em outro lugar
+    - outro ponto
+    - onde ele parou
+    - onde o motorista esta parado
+  # reclamação do motorista ou da viagem
+  reclamacao:
+    - reclamacao
+    - reclamar
+    - quero reclamar
+    - denuncia
+    - denunciar
+    - mal educado
+    - grosso
+    - grosseiro
+    - estupido
+    - ignorante
+    - desrespeitoso
+    - me destratou
+    - gritou comigo
+    - xingou
+    - falta de respeito
+    - correndo demais
+    - correndo muito
+    - alta velocidade
+    - velocidade alta
+    - acima da velocidade
+    - dirigindo mal
+    - direcao perigosa
+    - imprudente
+    - falando no celular
+    - mexendo no celular
+    - no celular dirigindo
+    - sem cinto
+    - som alto
+    - carro sujo
+    - carro quebrado
+    - ar condicionado
+    - fumando
+    - recusou me levar
+    - nao quis me levar
+    - cobrou
+  cancelar:
+    - cancela
+    - cancelar
+    - cancelamento
+    - pode cancelar
+    - quero cancelar
+    - nao preciso mais
+    - nao vou precisar
+    - nao precisa mais
+    - nao vou mais
+    - desisti
+    - desistir
+    - desconsidera
+    - desconsiderar
+    - esquece o pedido
+    - esquece a viagem
+    - ja consegui carona
+    - ja peguei carona
+    - consegui outro carro
+    - ja resolvi
+    - anula
+    - anular
+  informacao:
+    - onde esta
+    - onde ta
+    - onde fica
+    - onde o carro
+    - onde o veiculo
+    - onde o motorista
+    - onde se encontra
+    - se encontra
+    - localizacao
+    - localizar
+    - posicao do carro
+    - cade
+    - kd
+    - nao chegou
+    - ainda nao chegou
+    - nao veio
+    - ainda nao veio
+    - nao apareceu
+    - nada do carro
+    - nada ainda
+    - estou esperando
+    - to esperando
+    - esperando ha
+    - esperando faz
+    - aguardando
+    - demorando
+    - demora
+    - demorou
+    - vai demorar
+    - muito tempo
+    - atrasado
+    - atrasou
+    - atraso
+    - quanto tempo
+    - quanto falta
+    - quantos minutos
+    - quando chega
+    - quando vai chegar
+    - que horas chega
+    - ja saiu
+    - ja esta vindo
+    - esta vindo
+    - ta vindo
+    - vem ou nao
+    - previsao
+    - informacao
+    - informacoes
+    - informe
+    - saber da minha
+    - saber do meu
+    - saber sobre
+    - saber o status
+    - status
+    - situacao
+    - andamento
+    - aconteceu alguma coisa
+    - aconteceu algo
+    - o que aconteceu
+    - o que houve
+    - qual carro
+    - qual veiculo
+    - qual motorista
+    - quem vai me buscar
+    - meu carro
+    - meu pool
+    - minha viagem
+    - minha corrida
+    - meu pedido
+    - minha solicitacao
+    - eu solicitei
+    - ja solicitei
+    - tinha solicitado
+    - tinha pedido
+    - ja pedi
+  pedir:
+    - preciso de um pool
+    - preciso de um carro
+    - preciso de carro
+    - preciso de uma corrida
+    - preciso de uma viagem
+    - preciso ir
+    - quero ir
+    - queria ir
+    - quero um pool
+    - queria um pool
+    - solicitar
+    - solicito
+    - pedir um
+    - pool
+    - pulso
+    - pulo
+    - povo
+    - pum
+    - corrida
+    - carro
+    - buscar
+    - me buscar
+    - me pegar
+    - levar
+    - me leva
+    - me levar
+    - ir para
+    - ir pra
+    - ir ate
+    - para a
+    - para o
+    - pra
+    - ate a
+    - ate o
+    - saindo
+
+# ------------------------------------------------------------------
+# Respostas faladas. Cada uma pode ter várias versões; o sistema escolhe uma ao acaso
+# (para não ficar repetitivo). Termine com "Câmbio." quando for resposta de rádio.
+respostas:
+  confirmada:
+    - "{nome}, viagem confirmada para {passageiros_txt}. Motorista {motorista}, veículo {veiculo}, chegará em {origem} em {minutos}.{antes_txt} Câmbio."
+  # viagem compartilhada: o carro já está em rota com outro passageiro e busca esta pessoa no caminho
+  confirmada_compartilhada:
+    - "{nome}, viagem confirmada para {passageiros_txt}, compartilhada. O veículo {veiculo}, do motorista {motorista}, já está em rota com {com_quem} e vai te buscar em {origem} em {minutos}. Antes de te deixar em {destino}, ele para em {parada_antes}. Chegada prevista às {hora_destino}. Câmbio."
+  confirmada_compartilhada_mesmo_destino:
+    - "{nome}, viagem confirmada para {passageiros_txt}, compartilhada. O veículo {veiculo}, do motorista {motorista}, já está em rota com {com_quem} e vai te buscar em {origem} em {minutos}. Chegada prevista em {destino} às {hora_destino}. Câmbio."
+  confirmada_antes: " Ele termina {antes} atendimento(s) antes."
+  na_fila_geral:
+    - "{nome}, no momento não é possível atender. Você está na fila, posição {posicao}. Aguarde que a central vai chamar. Câmbio."
+  agendada:
+    - "{nome}, pool agendado de {origem} para {destino} às {hora}. Câmbio."
+  depois_de_confirmar:
+    - "Para mais informações sobre esta viagem, diga seu nome, sua matrícula e o que deseja."
+  falta_dados:
+    - "{nome}, não entendi {falta}. Repita, por favor: eu sou, nome, matrícula, preciso de um pool de tal lugar para tal lugar, para tantos passageiros. Câmbio."
+  nao_entendi:
+    - "Não entendi o pedido. Para pedir um pool diga: eu sou, nome, matrícula, preciso de um pool de tal lugar para tal lugar, para tantos passageiros. Para saber da sua viagem diga: nome, matrícula e o que deseja. Câmbio."
+  sem_identificacao:
+    - "Para eu localizar sua viagem, diga seu nome e sua matrícula. Câmbio."
+  sem_corrida:
+    - "{nome}, não encontrei nenhuma viagem para a matrícula {matricula} hoje. Câmbio."
+  sem_corrida_nome:
+    - "{nome}, não encontrei nenhuma viagem no seu nome hoje. Diga também a sua matrícula, por favor. Câmbio."
+  identificado:
+    - "Certo, {nome}, matrícula {matricula}. O que você precisa? Pode pedir um pool ou perguntar da sua viagem. Câmbio."
+  ja_tem_viagem:
+    - "{nome}, você já tem uma viagem aberta."
+  atualizacao_carro:
+    - "Atualização. {nome}, viagem confirmada. Motorista {motorista}, veículo {veiculo}, chegará em {origem} em {minutos}. Câmbio."
+
+  # Pedido de informação, conforme a situação da viagem
+  info_a_caminho:
+    - "{nome}, o veículo {veiculo} está a caminho, perto de {onde}, a {km} quilômetros de você. Previsão de chegada em {origem}: {minutos}. Câmbio."
+  info_parado:
+    - "{nome}, o veículo {veiculo} está parado há {parado_min} minutos perto de {onde}. Estou perguntando ao motorista o que aconteceu. Assim que ele responder, eu te aviso. Câmbio."
+  info_atrasado:
+    - "{nome}, o veículo {veiculo} está atrasado {atraso_min} minutos em relação à previsão. Ele está perto de {onde}. Estou confirmando com o motorista e já te aviso. Câmbio."
+  info_na_fila_motorista:
+    - "{nome}, o motorista {motorista}, veículo {veiculo}, termina {antes} atendimento(s) antes do seu. Previsão de chegada em {origem}: {minutos}. Câmbio."
+  info_sem_carro:
+    - "{nome}, sua viagem ainda está na fila, posição {posicao}. Nenhum carro livre no momento. Câmbio."
+  info_no_local:
+    - "{nome}, o veículo {veiculo} já está te esperando em {origem} desde {hora_chegou}. Câmbio."
+  info_em_viagem:
+    - "{nome}, você está em viagem para {destino}. Chegada prevista às {hora}. Câmbio."
+  info_concluida:
+    - "{nome}, sua última viagem, de {origem} para {destino}, foi concluída às {hora_fim} com o veículo {veiculo}. Câmbio."
+  info_cancelada:
+    - "{nome}, sua última viagem, de {origem} para {destino}, foi cancelada. Câmbio."
+  info_agendada:
+    - "{nome}, sua viagem está agendada para {hora}. Câmbio."
+
+  cancelada_ok:
+    - "{nome}, sua viagem de {origem} para {destino} foi cancelada. Câmbio."
+  nada_para_cancelar:
+    - "{nome}, não há viagem aberta para cancelar. Câmbio."
+  cancelar_em_viagem:
+    - "{nome}, sua viagem para {destino} já começou no veículo {veiculo}, por isso não posso cancelar. Se você não entrou no carro, diga: não entrei no carro. Câmbio."
+
+  # "A viagem começou mas eu não entrei no carro"
+  embarque_verificando:
+    - "{nome}, entendi. A viagem no veículo {veiculo} foi iniciada e você informa que não embarcou. Estou perguntando agora ao motorista {motorista} o que aconteceu e já te aviso. Câmbio."
+  embarque_ainda_nao_comecou:
+    - "{nome}, sua viagem ainda não começou. {situacao} Câmbio."
+  embarque_comigo:
+    - "Atualização. O motorista do veículo {veiculo} confirmou que está com o passageiro {nome}, matrícula {matricula}, no carro. Se não é você, a central vai verificar pelo rádio. Câmbio."
+
+  # "Não estou achando o carro" / "o carro foi no lugar errado"
+  encontro_verificando:
+    - "{nome}, entendi. O veículo {veiculo} deveria estar em {origem}. Estou perguntando agora ao motorista {motorista} onde ele está e já te aviso. Câmbio."
+  encontro_situacao:
+    - "{nome}, {situacao} Câmbio."
+
+  # Reclamação
+  reclamacao_registrada:
+    - "{nome}, sua reclamação foi registrada e a central foi avisada. Obrigado por informar. Câmbio."
+  embarque_outra_pessoa:
+    - "Atualização. {nome}, o motorista do veículo {veiculo} informou que embarcou outra pessoa por engano. Já pedi outro carro para você, com prioridade: veículo {novo_veiculo}, chega em {origem} em {novo_minutos}. Câmbio."
+  embarque_outra_pessoa_sem_carro:
+    - "Atualização. {nome}, o motorista do veículo {veiculo} informou que embarcou outra pessoa por engano. Já abri um novo pedido para você, com prioridade, e assim que tiver carro eu aviso. Câmbio."
+  embarque_engano:
+    - "Atualização. {nome}, o motorista do veículo {veiculo} iniciou a viagem por engano e continua em {origem} te esperando. Câmbio."
+
+  # Retorno do motorista repassado ao passageiro
+  motorista_respondeu:
+    - "Atualização da sua viagem. O motorista do veículo {veiculo} informou: {resposta_motorista}. Câmbio."
+  motorista_sem_resposta:
+    - "Atualização. O motorista do veículo {veiculo} ainda não respondeu. A central foi avisada para entrar em contato. Câmbio."
+
+# ------------------------------------------------------------------
+# Pergunta enviada ao motorista quando o carro para ou atrasa
+checagem_motorista:
+  texto: "Você está bem? Aconteceu algo? Vai conseguir chegar no horário previsto?"
+  opcoes:
+    - id: ok
+      texto: "Tudo certo, chego no horário"
+      para_passageiro: "está tudo certo e ele chega no horário previsto"
+    - id: atraso
+      texto: "Vou atrasar alguns minutos"
+      para_passageiro: "vai atrasar alguns minutos, mas está a caminho"
+    - id: transito
+      texto: "Parado no trânsito / liberação de via"
+      para_passageiro: "está parado aguardando liberação da via e segue assim que liberar"
+    - id: problema
+      texto: "Tive um problema, preciso de apoio"
+      para_passageiro: "teve um problema com o veículo. A central está enviando outro carro"
+  # sem resposta neste tempo, a central é alertada e o passageiro avisado
+  sem_resposta_min: 3
+
+# Pergunta enviada ao motorista quando o passageiro diz que não embarcou mas a viagem já começou
+checagem_embarque:
+  texto: "Atenção! {nome}, matrícula {matricula}, informa que NÃO embarcou, mas a viagem de {origem} para {destino} foi iniciada. Confirme os dados de quem está no carro com você."
+  opcoes:
+    - id: comigo
+      texto: "Confirmo: é {nome}, matrícula {matricula}"
+    - id: outra_pessoa
+      texto: "Não, é outra pessoa (informe nome e matrícula)"
+      pede_dados: true
+    - id: engano
+      texto: "Iniciei por engano, ainda estou no local"
+
+# Pergunta enviada ao motorista quando o passageiro não encontra o carro
+checagem_encontro:
+  texto: "{nome}, matrícula {matricula}, não está encontrando o seu carro em {origem}. Onde você está?"
+  opcoes:
+    - id: no_local
+      texto: "Estou no ponto de embarque, aguardando"
+      para_passageiro: "está no ponto de embarque te aguardando"
+    - id: chegando
+      texto: "Estou chegando"
+      para_passageiro: "está chegando ao ponto de embarque"
+    - id: outro_ponto
+      texto: "Fui para outro ponto, já estou indo"
+      para_passageiro: "estava em outro ponto e já está indo até você"
+
+# ------------------------------------------------------------------
+# Aprendizado: correções feitas na central (aba Assistente → "Corrigir"). Ficam em backend/dados/aprendido.json.
+# Frase igual ou bem parecida com uma corrigida usa a intenção ensinada (fonte "aprendido").
+aprendizado:
+  semelhanca_minima: 0.75          # 0 a 1: quanto a frase precisa parecer com a ensinada para valer sobre as regras
+  semelhanca_se_nao_entendeu: 0.5  # quando as regras não entenderam nada, aceita semelhança menor
+
+# ------------------------------------------------------------------
+# Limites do monitoramento automático
+monitor:
+  parado_min: 4          # carro com corrida em andamento sem andar este tempo → pergunta ao motorista
+  parado_metros: 40      # andar menos que isto conta como parado
+  atraso_min: 5          # passou da previsão de chegada este tempo → pergunta ao motorista
+  perguntar_automatico: true   # true: pergunta sozinho; false: só quando o passageiro pedir informação
+  redespachar_se_problema: true
+
+# ------------------------------------------------------------------
+# IA de linguagem (opcional). Desligada = só as regras acima (grátis, funciona sem internet).
+# Ligada = usa Claude para entender frases fora do padrão. Precisa de chave da API Anthropic (serviço pago,
+# cobrança por uso) na variável de ambiente ANTHROPIC_API_KEY. Nunca escreva a chave neste arquivo.
+ia:
+  usar_llm: false
+  modelo: claude-haiku-5-5
