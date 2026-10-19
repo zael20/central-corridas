@@ -231,11 +231,26 @@
   // Microfone estilo rádio: fica aberto até a pessoa mandar parar (pausas para pensar não fecham).
   // O reconhecimento do navegador/celular desliga sozinho no silêncio; aqui ele é religado na hora e o texto vai somando.
   // Devolve { parar() → Promise<texto> }.
+  // Junta dois pedaços de fala sem repetir: no celular (Chrome/Android) cada resultado costuma trazer o texto
+  // inteiro de novo ("meu nome", "meu nome é Israel", "meu nome é Israel matrícula..."), e isso virava repetição.
+  function juntar(a, b) {
+    a = (a || '').replace(/\s+/g, ' ').trim(); b = (b || '').replace(/\s+/g, ' ').trim();
+    if (!b) return a; if (!a) return b;
+    const na = a.toLowerCase(), nb = b.toLowerCase();
+    if (nb.includes(na)) return b;          // o novo já contém tudo
+    if (na.includes(nb)) return a;          // o novo é repetição de um pedaço
+    const pa = a.split(' '), pb = b.split(' ');
+    for (let k = Math.min(pa.length, pb.length); k > 0; k--) { // fim de a igual ao começo de b: emenda sem repetir
+      if (pa.slice(-k).join(' ').toLowerCase() === pb.slice(0, k).join(' ').toLowerCase()) return pa.concat(pb.slice(k)).join(' ');
+    }
+    return a + ' ' + b;
+  }
+  const ANDROID = /Android/i.test(navigator.userAgent);
   async function microfone(aoParcial, aoErro) {
     const sr = plug().SpeechRecognition;
     let ativo = true, juntado = '', atual = '';
     const mostrar = () => aoParcial && aoParcial((juntado + ' ' + atual).replace(/\s+/g, ' ').trim());
-    const somar = () => { if (atual.trim()) juntado = (juntado + ' ' + atual).trim(); atual = ''; };
+    const somar = () => { juntado = juntar(juntado, atual); atual = ''; };
     if (sr) { // app Android
       const p = await sr.requestPermissions().catch(() => null);
       if (p && p.speechRecognition && p.speechRecognition !== 'granted') throw new Error('Permita o microfone para este app.');
@@ -250,12 +265,17 @@
     if (!SR) throw new Error('Este navegador não reconhece voz. Use o microfone do teclado (ditado) na caixa de texto.');
     let rec, erro = null, fimAtual = null;
     const abrir = () => {
-      rec = new SR(); rec.lang = 'pt-BR'; rec.interimResults = true; rec.continuous = true;
+      // no celular o modo contínuo repete resultados: lá cada sessão é curta e o microfone é religado sozinho
+      rec = new SR(); rec.lang = 'pt-BR'; rec.interimResults = true; rec.continuous = !ANDROID; rec.maxAlternatives = 1;
       let finalSessao = '';
       rec.onresult = e => {
-        let parcial = '';
-        for (let i = e.resultIndex; i < e.results.length; i++) { if (e.results[i].isFinal) finalSessao += ' ' + e.results[i][0].transcript; else parcial += ' ' + e.results[i][0].transcript; }
-        atual = finalSessao + ' ' + parcial; mostrar();
+        let fin = '', parcial = '';
+        for (let i = 0; i < e.results.length; i++) {
+          const txt = e.results[i][0].transcript;
+          if (e.results[i].isFinal) fin = juntar(fin, txt); else parcial = juntar(parcial, txt);
+        }
+        finalSessao = fin;
+        atual = juntar(finalSessao, parcial); mostrar();
       };
       rec.onerror = e => { if (e.error === 'not-allowed' || e.error === 'service-not-allowed') { erro = new Error('Microfone bloqueado. Libere o microfone para este site (precisa de https ou localhost).'); ativo = false; aoErro && aoErro(erro); } };
       rec.onend = () => { atual = finalSessao; somar(); mostrar(); if (ativo) setTimeout(abrir, 100); else if (fimAtual) fimAtual(); };
