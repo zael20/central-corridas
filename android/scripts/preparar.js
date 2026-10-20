@@ -38,7 +38,8 @@ if (fs.existsSync(manifesto)) {
   if (!m.includes('usesCleartextTraffic')) m = m.replace('<application', '<application android:usesCleartextTraffic="true"');
   if (APP === 'motorista') {
     const extras = ['android.permission.FOREGROUND_SERVICE', 'android.permission.FOREGROUND_SERVICE_LOCATION', 'android.permission.POST_NOTIFICATIONS',
-      'android.permission.WAKE_LOCK', 'android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS'];
+      'android.permission.WAKE_LOCK', 'android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS',
+      'android.permission.ACCESS_BACKGROUND_LOCATION', 'android.permission.SYSTEM_ALERT_WINDOW'];
     for (const p of extras) if (!m.includes(p)) m = m.replace('</manifest>', `    <uses-permission android:name="${p}" />\n</manifest>`);
     if (!m.includes('.RastreioServico')) m = m.replace('</application>', '        <service android:name=".RastreioServico" android:foregroundServiceType="location" android:exported="false" />\n    </application>');
     const pasta = path.join(raiz, 'android', 'app', 'src', 'main', 'java', ...NOMES[APP][1].split('.'));
