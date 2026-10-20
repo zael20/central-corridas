@@ -21,7 +21,14 @@ def test_usuarios():
     with TestClient(app) as c:
         cod_op = acesso.ver()['operacao']
         # 8015 entra como adm só com a matrícula; matrícula não cadastrada não entra
+        livre = c.post('/api/entrar', json={'matricula': '1234'}).json()   # sem cadastro: entra como passageiro
+        assert livre['papel'] == 'passageiro', livre
+        assert c.get('/api/estado', headers={'X-Acesso': livre['token']}).status_code == 403
+        assert c.get('/api/locais', headers={'X-Acesso': livre['token']}).status_code == 200
+        assert c.get('/api/locais', headers={'X-Acesso': 'p.1234.falso'}).status_code == 401
+        os.environ['PASSAGEIRO_LIVRE'] = '0'
         assert c.post('/api/entrar', json={'matricula': '1234'}).status_code == 401
+        os.environ.pop('PASSAGEIRO_LIVRE')
         adm = c.post('/api/entrar', json={'matricula': '8015'}).json()
         assert adm['papel'] == 'operacao' and adm['perfil'] == 'adm', adm
         ha = {'X-Acesso': adm['token']}

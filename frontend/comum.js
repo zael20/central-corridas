@@ -24,7 +24,7 @@
   // nível que a tela exige: 'operacao' (central), 'motorista' (app do motorista: adm ou motorista), 'codigo' (passageiro)
   const PAPEIS_OK = { operacao: ['operacao'], motorista: ['operacao', 'motorista'], codigo: ['operacao', 'motorista', 'passageiro'] };
   const TITULO = { operacao: 'Acesso da central', motorista: 'Acesso do motorista', codigo: 'Acesso' };
-  const DICA = { operacao: 'Matrícula de administrador.', motorista: 'Sua matrícula (cadastrada pela central).', codigo: 'Sua matrícula (cadastrada pela central).' };
+  const DICA = { operacao: 'Matrícula de administrador.', motorista: 'Sua matrícula (cadastrada pela central).', codigo: 'Digite a sua matrícula.' };
   function pedirCodigo(precisa, aviso) {
     const nivel = nivelTela || (precisa === 'operacao' ? 'operacao' : 'codigo');
     if (pedindo) return;
