@@ -40,6 +40,7 @@
     justify-content: center; font-weight: 700; color: var(--muted); flex: none; }
   .cartao { border: 1px solid var(--line); border-radius: 10px; padding: 12px; display: flex; flex-direction: column; gap: 10px; }
   .cartao.proxima { background: var(--surface-2); }
+  .cartao.proxima .avatar { background: var(--surface); }
   .roteiro { margin: 0; padding-left: 22px; display: flex; flex-direction: column; gap: 10px; }
   .roteiro li { display: flex; flex-direction: column; gap: 6px; }
   .roteiro li.agora::marker { color: var(--accent); font-weight: 700; }
@@ -99,6 +100,7 @@
     <button class="btn grande" id="m-trocar">Trocar motorista ou carro</button>
   </div></div>
   <div class="painel"><h2>Voz</h2><div id="voz-cfg"></div></div>
+  <div class="painel"><h2>Acesso</h2><p class="aviso" id="m-acesso"></p><div class="acoes"><button class="btn" id="m-sair">Sair deste acesso</button></div></div>
   <div class="painel"><h2>Servidor</h2><p class="aviso" id="m-srv"></p><a class="btn" href="index.html?config=1">Trocar servidor</a></div>
 </div>
 
@@ -114,7 +116,9 @@
   let meu = ls.get('meuCarro'), vistos = new Set(), checVistas = new Set(), ofertasVistas = new Set(), primeiro = true, trocando = false, offset = 0;
   App.painelVoz($('voz-cfg'));
   por('m-srv', esc(App.SERVIDOR));
-  await App.iniciar($('con'), { papel: 'operacao' });
+  por('m-acesso', ls.get('matricula') && ls.get('perfil') ? `Entrou como ${esc(ls.get('nome') || '')} (mat. ${esc(ls.get('matricula'))}, ${esc(ls.get('perfil'))}).` : 'Entrou com o código da operação.');
+  $('m-sair').onclick = () => { if (confirm('Sair deste acesso? Vai pedir matrícula e código de novo.')) App.sair(); };
+  await App.iniciar($('con'), { papel: 'motorista' });
 
   const enviar = async (caminho, dados) => { try { return await api(caminho, dados || {}); } catch (e) { App.toast(e.message); throw e; } };
   const agora = () => Date.now() + offset;

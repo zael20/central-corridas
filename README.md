@@ -152,6 +152,10 @@ npx cap open android          → Build → Build APK
 
 Para instalar no celular, copie o `.apk` e permita "instalar apps desconhecidos". No app, o microfone usa o reconhecimento de voz do Google, e a voz usa o TTS do celular.
 
+**Acessos por pessoa (aba Acessos da central).** Cada pessoa entra com matrícula + código, com perfil Adm (central e cadastro), Motorista (app do motorista) ou Passageiro. A matrícula `ADM_MATRICULA` (padrão 8015) é sempre adm; o código dela é `ADM_CODIGO` ou, sem essa variável, o código da operação. Os códigos gerais (passageiro e operação) continuam valendo. No Render grátis o disco é apagado ao reiniciar: os acessos cadastrados somem e só o adm principal volta sozinho.
+
+**Tela do motorista.** Mapa na tela inteira, barra com o motorista do turno (matrícula; o nome vem do cadastro), painel de baixo que recolhe para ver só o mapa, pop-up para aceitar/recusar corrida e cartão da próxima corrida prevista.
+
 **GPS do Pool Motorista em segundo plano.** No APK do motorista, a posição é enviada por um serviço do Android (código em `android/nativo/`, instalado pelo `preparar.js`), e não pela página. Ele continua com a tela desligada ou o app minimizado e deixa uma notificação fixa "Pool Motorista em operação".
 - Liga sozinho quando o carro está **assumido** neste celular e **em operação**; desliga em "Sair de operação".
 - Manda a posição a cada 10 s para `POST /api/motoristas/{carro}/gps` (também com o carro parado, para a central saber que o celular está vivo).
