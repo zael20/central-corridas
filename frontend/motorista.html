@@ -90,6 +90,17 @@
   </div>
 </div>
 
+<!-- permissões do app (só no APK), pedidas ao abrir -->
+<div class="tela-cheia" id="perm" hidden>
+  <div class="painel">
+    <h2>Permissões do app</h2>
+    <p class="aviso">Para a central ver o carro em tempo real e a corrida aparecer na hora, libere tudo abaixo. Depois de liberar em cada tela do Android, volte para cá.</p>
+    <div class="pilha" style="gap:10px;margin-top:10px" id="perm-lista"></div>
+    <div class="acoes" style="margin-top:14px"><button class="btn grande principal" id="perm-ok">Continuar</button></div>
+    <p style="margin-top:10px"><a href="#" id="perm-pular" class="aviso">Continuar sem liberar tudo</a></p>
+  </div>
+</div>
+
 <!-- menu -->
 <div class="tela-cheia" id="menu" hidden>
   <div class="painel">
@@ -98,6 +109,7 @@
   <div class="painel"><h2>Turno</h2><div class="pilha" style="gap:8px">
     <button class="btn grande" id="m-op"></button>
     <button class="btn grande" id="m-trocar">Trocar motorista ou carro</button>
+    <button class="btn grande" id="m-perm" hidden>Permissões do app</button>
   </div></div>
   <div class="painel"><h2>Voz</h2><div id="voz-cfg"></div></div>
   <div class="painel"><h2>Acesso</h2><p class="aviso" id="m-acesso"></p><div class="acoes"><button class="btn" id="m-sair">Sair deste acesso</button></div></div>
@@ -114,11 +126,51 @@
 (async function () {
   const { $, esc, por, pill, hora, api, ls } = App;
   let meu = ls.get('meuCarro'), vistos = new Set(), checVistas = new Set(), ofertasVistas = new Set(), primeiro = true, trocando = false, offset = 0;
-  App.painelVoz($('voz-cfg'));
   por('m-srv', esc(App.SERVIDOR));
   por('m-acesso', ls.get('matricula') && ls.get('perfil') ? `Entrou como ${esc(ls.get('nome') || '')} (mat. ${esc(ls.get('matricula'))}, ${esc(ls.get('perfil'))}).` : 'Entrou pelo acesso antigo da operação.');
   $('m-sair').onclick = () => { if (confirm('Sair deste acesso? Vai pedir a matrícula de novo.')) App.sair(); };
+  const rastreio = App.plug().Rastreio;
+
+  // ---------- permissões (APK): pede tudo logo ao abrir ----------
+  const PERM = [
+    ['localizacao', 'Localização', 'Para enviar a posição do carro.', 'pedirLocalizacao'],
+    ['segundoPlano', 'Localização o tempo todo', 'Escolha “Permitir o tempo todo”: o GPS continua com a tela desligada.', 'pedirSegundoPlano'],
+    ['notificacao', 'Notificações', 'Aviso fixo de que o GPS está ligado e alerta de corrida.', 'pedirNotificacao'],
+    ['bateriaLivre', 'Bateria sem restrição', 'Escolha “Permitir”: o Android não pausa o app para economizar bateria.', 'semRestricaoBateria'],
+    ['sobreposicao', 'Sobrepor a outros apps', 'Ative a chave: a corrida nova abre o app por cima do que estiver na tela.', 'pedirSobreposicao'],
+  ];
+  async function telaPermissoes(forcar) {
+    let st; try { st = await rastreio.permissoes(); } catch (e) { return; }
+    if (!forcar && PERM.every(p => st[p[0]])) return;
+    $('perm').hidden = false;
+    return new Promise(fim => {
+      const montar = async () => {
+        try { st = await rastreio.permissoes(); } catch (e) { return; }
+        por('perm-lista', PERM.map(([k, nome, dica]) => `<div class="cartao" style="flex-direction:row;align-items:center;gap:12px">
+          <span style="font-size:22px;width:22px;text-align:center;flex:none;color:${st[k] ? 'var(--ok)' : 'var(--bad)'}">${st[k] ? '✓' : '!'}</span>
+          <div style="flex:1"><b>${nome}</b><div class="aviso">${dica}</div></div>
+          ${st[k] ? '<span class="aviso">liberado</span>' : `<button class="btn principal" data-perm="${k}">Permitir</button>`}</div>`).join(''));
+        $('perm-ok').disabled = !PERM.every(p => st[p[0]]);
+      };
+      $('perm-lista').onclick = async ev => {
+        const b = ev.target.closest('[data-perm]'); if (!b) return;
+        const item = PERM.find(p => p[0] === b.dataset.perm);
+        try { await rastreio[item[3]](); } catch (e) { App.toast(e.message); }
+        montar();
+      };
+      const sair = () => { clearInterval(t); document.removeEventListener('visibilitychange', aoVoltar); $('perm').hidden = true; fim(); };
+      const aoVoltar = () => { if (!document.hidden) montar(); };
+      document.addEventListener('visibilitychange', aoVoltar);
+      const t = setInterval(montar, 2000);
+      $('perm-ok').onclick = sair;
+      $('perm-pular').onclick = ev => { ev.preventDefault(); if (confirm('Sem essas permissões o GPS pode parar com a tela desligada e a corrida pode não aparecer na hora. Continuar assim?')) sair(); };
+      montar();
+    });
+  }
+  if (rastreio) { $('m-perm').hidden = false; $('m-perm').onclick = () => { $('menu').hidden = true; telaPermissoes(true); }; await telaPermissoes(); }
+
   await App.iniciar($('con'), { papel: 'motorista' });
+  App.painelVoz($('voz-cfg'));
 
   const enviar = async (caminho, dados) => { try { return await api(caminho, dados || {}); } catch (e) { App.toast(e.message); throw e; } };
   const agora = () => Date.now() + offset;
@@ -184,6 +236,7 @@
     const r = corr[m.atual], fila = m.fila.map(id => corr[id]).filter(Boolean);
     const ativas = (m.ativas || []).map(id => corr[id]).filter(Boolean);
     const novas = [...ativas, ...fila].filter(c => c && !vistos.has(c.id));
+    if ((novas.length || fila.some(c => c.status === 'oferecida' && !ofertasVistas.has(c.id))) && !primeiro && document.hidden && rastreio) rastreio.trazerParaFrente().catch(() => {});
     if (novas.length && !primeiro) { App.bip(); App.falar((novas.some(c => c.compartilhada) ? 'Nova corrida compartilhada: ' : 'Nova corrida: ') + novas.map(c => `buscar ${c.solicitante || 'passageiro'} em ${App.nomeLocal(c.origem)}, levar para ${App.nomeLocal(c.destino)}`).join('. ')); }
     for (const c of [...ativas, ...fila]) if (c) vistos.add(c.id);
     primeiro = false;
@@ -275,7 +328,6 @@
   App.ouvintes.push(msg => { if (msg.tipo === 'estado' || msg.tipo === 'locais_ok' || (msg.tipo === 'checagem' && msg.carro === meu)) render(); });
 
   // GPS do celular → servidor (só quando o carro foi assumido por este aparelho e está em operação)
-  const rastreio = App.plug().Rastreio;
   if (rastreio) {
     // App Android: o envio roda num serviço do próprio Android, que continua com a tela desligada ou o app minimizado.
     let pedido = '', ocupado = false, avisoErro = '';

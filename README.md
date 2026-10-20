@@ -131,12 +131,14 @@ Um carro que já está em rota, com lugar sobrando, pode buscar outro passageiro
 ## 4. APK Android
 
 O APK é só uma casca: as telas vêm de `frontend/` e toda a regra vem do servidor. Na primeira abertura, o app pede o endereço do servidor.
-São dois APKs: **Pool Passageiro** e **Pool Motorista**.
+O APK gerado é o **Pool Motorista**. O passageiro usa a página `passageiro.html` no navegador (o `preparar.js` ainda sabe montar um APK de passageiro, se precisar).
+
+Ao abrir, o app do motorista pede: localização, localização o tempo todo, notificações, bateria sem restrição e sobrepor a outros apps (para abrir por cima quando chega corrida). Dá para rever em Menu → Permissões do app.
 
 **Pelo GitHub (grátis, sem instalar nada):**
 1. Coloque a pasta `uber-radio` num repositório do GitHub.
 2. Abra Actions → **Gerar APKs** → Run workflow.
-3. Quando terminar, baixe `pool-passageiro` e `pool-motorista` em *Artifacts*.
+3. Quando terminar, baixe o `pool-motorista.apk` na página *Releases* (`apk-main`): https://github.com/zael20/central-corridas/releases/download/apk-main/pool-motorista.apk
 
 **No PC (Android Studio instalado):**
 ```
