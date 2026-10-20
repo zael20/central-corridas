@@ -3,7 +3,8 @@
 (function () {
   const ls = { get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }, set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} } };
   // Endereço do servidor: o próprio site, ou o que foi digitado na tela inicial (app Android)
-  const SERVIDOR = (ls.get('servidor') || (location.protocol.startsWith('http') ? location.origin : '')).replace(/\/$/, '');
+  // No APK a página roda dentro do celular (http://localhost): sem servidor salvo, usa o que veio no APK, nunca o próprio celular.
+  const SERVIDOR = (ls.get('servidor') || window.SERVIDOR_PADRAO || (location.protocol.startsWith('http') && !window.Capacitor ? location.origin : '')).replace(/\/$/, '');
   const clienteId = ls.get('clienteId') || (() => { const id = 'cli-' + Math.random().toString(36).slice(2, 10); ls.set('clienteId', id); return id; })();
 
   const $ = id => document.getElementById(id);
@@ -53,7 +54,7 @@
       headers: { 'Content-Type': 'application/json', 'X-Acesso': token() }, body: dados === undefined ? undefined : JSON.stringify(dados) });
     const j = await r.json().catch(() => ({}));
     if ((r.status === 401 || r.status === 403) && j.precisa) pedirCodigo(j.precisa, j.detail);
-    if (!r.ok) throw new Error(j.detail || ('Erro ' + r.status));
+    if (!r.ok) { const e = new Error(j.detail || ('Erro ' + r.status)); e.status = r.status; throw e; }
     return j;
   }
 
@@ -84,6 +85,18 @@
     LC = Object.fromEntries(locais.map(l => [l.id, l]));
     try { cfgMapa = await api('/api/mapa/config'); } catch (e) { cfgMapa = cfgMapa || {}; }
   }
+  function semServidor(statusEl, erro, tentativa) {
+    let d = document.querySelector('.sem-servidor');
+    if (!erro) { d && d.remove(); return; }
+    statusEl && (statusEl.className = 'modo', statusEl.innerHTML = '<i></i> Sem conexão, tentando…');
+    if (!d) { d = document.createElement('div'); d.className = 'codigo-fundo sem-servidor'; document.body.appendChild(d); }
+    const motivo = erro.status ? `O endereço respondeu, mas não parece ser a central (erro ${erro.status}).` : 'Não houve resposta (sem internet, rede bloqueada ou servidor desligado).';
+    d.innerHTML = `<div class="painel codigo-caixa"><h2>Sem conexão com a central</h2>
+      <p>Servidor: <b>${esc(SERVIDOR)}</b></p><p class="aviso">${esc(motivo)} Tentativa ${tentativa + 1}, tentando de novo sozinho…</p>
+      <p class="aviso">A central no Render grátis dorme sem uso e leva até 1 minuto para acordar. Na rede da empresa o site pode estar bloqueado: teste com os dados móveis.</p>
+      <div class="acoes"><button class="btn principal" type="button" onclick="location.reload()">Tentar agora</button>
+      <a class="btn" href="index.html?config=1">Trocar servidor</a></div></div>`;
+  }
   async function iniciar(statusEl, { papel } = {}) {
     if (!SERVIDOR) { location.href = 'index.html'; return; }
     if (papel === 'operacao' && ls.get('papel') !== 'operacao') {
@@ -91,7 +104,16 @@
       const r = await fetch(SERVIDOR + '/api/estado', { headers: { 'X-Acesso': token() } }).catch(() => null);
       if (r && (r.status === 401 || r.status === 403)) { pedirCodigo('operacao'); return new Promise(() => {}); }
     }
-    try { await carregarLocais(); } catch (e) { return new Promise(() => {}); } // pediu o código: espera
+    // sem resposta do servidor: avisa na tela e tenta de novo sozinho (antes ficava em "Conectando…" para sempre)
+    for (let tentativa = 0; ; tentativa++) {
+      try { await carregarLocais(); break; }
+      catch (e) {
+        if (e.status === 401 || e.status === 403) return new Promise(() => {}); // pediu o código: espera
+        semServidor(statusEl, e, tentativa);
+        await new Promise(ok => setTimeout(ok, Math.min(15000, 3000 + tentativa * 2000)));
+      }
+    }
+    semServidor(null);
     // locais marcados/alterados na central: todos os aparelhos recarregam os pontos e a chave do mapa
     ouvintes.unshift(async msg => {
       if (msg.tipo !== 'locais') return;
@@ -395,10 +417,12 @@
       { maxZoom: 20, attribution: '<a href="https://www.maptiler.com/copyright/" target="_blank">© MapTiler</a> <a href="https://www.openstreetmap.org/copyright" target="_blank">© OpenStreetMap</a>' });
     return L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19, attribution: 'Imagens © Esri' });
   }
-  function enquadrar(inst, pontos) {
-    const b = pontos.filter(Boolean);
-    if (b.length === 1) inst.map.setView(b[0], 16);
-    else if (b.length) inst.map.fitBounds(b, { padding: [30, 30], maxZoom: 17 });
+  // margem: espaço coberto por painéis por cima do mapa ({ topo, baixo } em px), para a rota não ficar escondida
+  function enquadrar(inst, pontos, margem) {
+    const b = pontos.filter(Boolean), m = margem || {};
+    const opc = { paddingTopLeft: [30, 30 + (m.topo || 0)], paddingBottomRight: [30, 30 + (m.baixo || 0)], maxZoom: 17 };
+    if (b.length === 1) inst.map.fitBounds([b[0], b[0]], opc);
+    else if (b.length) inst.map.fitBounds(b, opc);
   }
   function novoMapa(el, aoClicar) {
     const map = L.map(el, { zoomControl: true });
@@ -413,7 +437,7 @@
   }
   // el: <div class="mapa-sat">. carro: mostra só esse carro. alvos: ids de locais em destaque.
   // aoClicar(latlng): clique no mapa (aba Locais). rotulos: nome fixo em todos os locais.
-  function mapa(el, { carro, alvos, aoClicar, rotulos } = {}) {
+  function mapa(el, { carro, alvos, aoClicar, rotulos, margem } = {}) {
     if (!el || !estado || !locais.length) return;
     if (!window.L) return mapaEsquema(el, { carro, alvos });
     const inst = el._mapa || (el._mapa = novoMapa(el, aoClicar));
@@ -448,7 +472,7 @@
     const foco = carro ? carro + '|' + [...A].join(',') : '';
     if (foco && inst.enquadrado !== foco) {
       inst.enquadrado = foco;
-      enquadrar(inst, [...carros.map(m => [m.pos.lat, m.pos.lon]), ...[...A].map(id => LC[id] && [LC[id].lat, LC[id].lon])]);
+      enquadrar(inst, [...carros.map(m => [m.pos.lat, m.pos.lon]), ...[...A].map(id => LC[id] && [LC[id].lat, LC[id].lon])], typeof margem === 'function' ? margem() : margem);
     }
   }
 

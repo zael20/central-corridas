@@ -11,6 +11,15 @@ if (!NOMES[APP]) throw new Error('APP deve ser passageiro ou motorista');
 const raiz = path.join(__dirname, '..'), www = path.join(raiz, 'www');
 fs.rmSync(www, { recursive: true, force: true });
 fs.cpSync(path.join(raiz, '..', 'frontend'), www, { recursive: true });
+// mapa (Leaflet) dentro do APK: não depende do unpkg.com, que pode estar bloqueado na rede da empresa
+const leaflet = path.join(raiz, 'node_modules', 'leaflet', 'dist');
+if (fs.existsSync(leaflet)) {
+  fs.cpSync(leaflet, path.join(www, 'leaflet'), { recursive: true });
+  for (const f of fs.readdirSync(www).filter(f => f.endsWith('.html'))) {
+    const arq = path.join(www, f);
+    fs.writeFileSync(arq, fs.readFileSync(arq, 'utf8').replaceAll('https://unpkg.com/leaflet@1.9.4/dist/', 'leaflet/'));
+  }
+}
 const SERVIDOR = process.env.SERVIDOR || 'https://central-corridas.onrender.com';
 fs.writeFileSync(path.join(www, 'fixo.js'), `window.APP_FIXO = ${JSON.stringify(APP)};\nwindow.SERVIDOR_PADRAO = ${JSON.stringify(SERVIDOR)};\n`);
 fs.writeFileSync(path.join(raiz, 'capacitor.config.json'), JSON.stringify({

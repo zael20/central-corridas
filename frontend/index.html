@@ -38,6 +38,14 @@
     catch (e) { res.textContent = '✗ Não encontrei o servidor nesse endereço (' + e.message + '). Confira o IP, a porta e se o celular está na mesma rede.'; return false; }
   }
   document.getElementById('testar').onclick = testar;
+  // abrir um app sem ter testado o servidor: testa e salva antes (senão o app fica sem saber onde está a central)
+  document.querySelectorAll('[data-app]').forEach(a => a.addEventListener('click', async ev => {
+    if (ls.get('servidor')) return;
+    ev.preventDefault();
+    if (await testar()) location.href = a.getAttribute('href');
+  }));
+  // APK com servidor já embutido: na primeira abertura testa sozinho e entra
+  if (fixo && !ls.get('servidor') && window.SERVIDOR_PADRAO && !new URLSearchParams(location.search).has('config')) testar();
   if (fixo && ls.get('servidor') && !new URLSearchParams(location.search).has('config')) location.replace(fixo + '.html');
 </script>
 </body></html>

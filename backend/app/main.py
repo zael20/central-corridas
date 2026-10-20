@@ -492,6 +492,17 @@ def acao_motorista(mid: str, nome: str, dados: dict | None = None):
             patch.update(geo_para_xy(lat, lon))
         estado.aplicar([{'col': 'motoristas', 'id': mid, 'patch': patch}])
         return {'ok': True}
+    elif nome == 'condutor':  # quem está dirigindo neste turno (o app do motorista pede a matrícula)
+        mat = re.sub(r'\D', '', str(dados.get('matricula') or ''))
+        if not mat:
+            estado.aplicar([{'col': 'motoristas', 'id': mid, 'patch': {'condutor': None}}])
+        else:
+            nome_c = (dados.get('nome') or '').strip() or (estado.pessoas.perfis().get(mat) or {}).get('nome', '')
+            if not nome_c:
+                raise HTTPException(400, 'Matrícula ainda não cadastrada: informe também o nome.')
+            if (dados.get('nome') or '').strip():
+                estado.pessoas.registrar(nome_c, mat, 'motorista')
+            estado.aplicar([{'col': 'motoristas', 'id': mid, 'patch': {'condutor': {'matricula': mat, 'nome': nome_c, 'desde': t}}}])
     elif nome == 'pane':
         central.pane(mid, bool(dados.get('ligar')))
     elif nome == 'remover':
