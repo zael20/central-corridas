@@ -13,6 +13,10 @@ services:
         value: 3.13.2
       - key: VOZ               # a voz Bella (Kokoro) não cabe no plano grátis: as telas usam a voz do aparelho
         value: "0"
+      - key: VOZ_URL           # servidor da voz Bella no Hugging Face (pasta voz-servico/); vazio = voz do aparelho
+        sync: false
+      - key: VOZ_SEGREDO       # o mesmo segredo configurado no Space
+        sync: false
       - key: MAPTILER_KEY      # chave do mapa satelital
         sync: false
       - key: CODIGO_PASSAGEIRO # código que o pessoal digita para pedir viagem
