@@ -13,6 +13,8 @@ Só entra quem a central cadastrou (decisão do usuário: sem código/senha).
 - motorista: app do motorista (ver a operação, GPS, botões da corrida, responder a central).
 - passageiro: igual ao código de passageiro, mas já identificado pela matrícula.
 A matrícula ADM_MATRICULA (padrão 8015) é sempre adm.
+Passageiro não precisa de cadastro: qualquer matrícula não cadastrada entra como passageiro
+(link /passageiro). PASSAGEIRO_LIVRE=0 exige cadastro também para passageiro.
 """
 import hashlib
 import hmac
@@ -129,9 +131,14 @@ class Acesso:
     def entrar(self, codigo, matricula=None):
         """Matrícula cadastrada (ou um dos códigos gerais, para quem já usava) → (papel, token) ou (None, None)."""
         codigo = (codigo or '').strip()
-        if so_digitos(matricula):
-            u = self.cfg['usuarios'].get(so_digitos(matricula))
-            return (PAPEL[u['perfil']], self._token_usuario(u)) if u else (None, None)
+        mat = so_digitos(matricula)
+        if mat:
+            u = self.cfg['usuarios'].get(mat)
+            if u:
+                return PAPEL[u['perfil']], self._token_usuario(u)
+            if len(mat) >= 3 and os.environ.get('PASSAGEIRO_LIVRE', '1') != '0':
+                return 'passageiro', f'p.{mat}.{self._assinar("p:" + mat)}'
+            return None, None
         for papel, k in (('operacao', 'codigo_operacao'), ('passageiro', 'codigo_passageiro')):
             if codigo and hmac.compare_digest(codigo, self.cfg[k]):
                 return papel, f'{papel}.{self._assinar(papel)}'
@@ -145,6 +152,9 @@ class Acesso:
         if token.startswith('u.'):
             u = self.quem(token)
             return PAPEL[u['perfil']] if u else None
+        if token.startswith('p.'):  # passageiro sem cadastro, entrou só com a matrícula
+            _, mat, assin = (token.split('.', 2) + ['', ''])[:3]
+            return 'passageiro' if mat and hmac.compare_digest(assin, self._assinar('p:' + mat)) else None
         papel, assin = token.split('.', 1)
         if papel in ('operacao', 'passageiro') and hmac.compare_digest(assin, self._assinar(papel)):
             return papel

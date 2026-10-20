@@ -82,11 +82,12 @@ def visao():
 def para_passageiro(est, info):
     """O passageiro só recebe as próprias viagens (pelo aparelho ou pela matrícula) e a posição dos carros."""
     def minha(r):
-        return (info['cliente'] and r.get('criadoPor') == info['cliente']) or (info['mat'] and r.get('matricula') == info['mat'])
+        return (info['cliente'] and r.get('criadoPor') == info['cliente']) or (info['mat'] and info['mat'] in (r.get('matricula'), (r.get('pedidoPor') or {}).get('matricula')))
     corridas = [r for r in est['corridas'] if minha(r)]
     carros = {r.get('carro') for r in corridas}
     motoristas = [{k: m.get(k) for k in ('id', 'nome', 'pos', 'onde', 'paradoMin', 'ativo', 'modo', 'capacidade')}
-                  | ({'rota': m.get('rota'), 'atual': m.get('atual'), 'ativas': m.get('ativas'), 'fila': []} if m['id'] in carros else {'fila': []})
+                  | ({'rota': m.get('rota'), 'atual': m.get('atual'), 'ativas': m.get('ativas'), 'fila': [],
+                      'motorista': (m.get('condutor') or {}).get('nome')} if m['id'] in carros else {'fila': []})
                   for m in est['motoristas']]
     return {'agora': est['agora'], 'motoristas': motoristas, 'corridas': [{k: v for k, v in r.items() if k != 'decisao'} for r in corridas],
             'checagens': [], 'eventos': [], 'configErro': None, 'rotasPelaEstrada': est.get('rotasPelaEstrada')}
@@ -184,9 +185,11 @@ class Entrada(BaseModel):
 def entrar(e: Entrada):
     papel, token = acesso.entrar(e.codigo, e.matricula)
     if not papel:
-        raise HTTPException(401, 'Matrícula não cadastrada. Peça à central para cadastrar.' if e.matricula.strip() else 'Informe a matrícula.')
+        raise HTTPException(401, 'Matrícula não cadastrada. Peça à central para cadastrar.' if re.sub(r'\D', '', e.matricula) else 'Informe a matrícula.')
     u = acesso.quem(token) or {}
-    return {'papel': papel, 'token': token, 'matricula': u.get('matricula', ''), 'nome': u.get('nome', ''), 'perfil': u.get('perfil', '')}
+    mat = u.get('matricula') or re.sub(r'\D', '', e.matricula)
+    nome = u.get('nome') or (estado.pessoas.perfis().get(mat) or {}).get('nome', '')  # passageiro: nome que a central já aprendeu
+    return {'papel': papel, 'token': token, 'matricula': mat, 'nome': nome, 'perfil': u.get('perfil') or ('passageiro' if mat else '')}
 
 
 # ---------- acesso por pessoa (aba Acessos da central; só adm / código da operação) ----------
@@ -358,13 +361,17 @@ class Mensagem(BaseModel):
     matricula: str | None = None
     nome: str | None = None
     clienteId: str | None = None
+    lat: float | None = None       # GPS do celular do passageiro (página do passageiro)
+    lon: float | None = None
+    precisao: float | None = None
 
 
 @app.post('/api/assistente')
 def assistente(m: Mensagem):
     if not m.texto.strip():
         raise HTTPException(400, 'Texto vazio.')
-    return central.mensagem(m.texto.strip(), m.canal, {'matricula': m.matricula, 'nome': m.nome, 'clienteId': m.clienteId})
+    return central.mensagem(m.texto.strip(), m.canal, {'matricula': m.matricula, 'nome': m.nome, 'clienteId': m.clienteId,
+                                                         'lat': m.lat, 'lon': m.lon, 'precisao': m.precisao})
 
 
 @app.post('/api/assistente/recarregar')
@@ -446,6 +453,8 @@ class Pedido(BaseModel):
     urgente: bool = False
     canal: str = 'app'
     clienteId: str = ''
+    posPassageiro: dict | None = None  # {lat, lon, precisao} do celular de quem pediu
+    pedidoPor: dict | None = None      # {nome, matricula} quando pede para outra pessoa
 
 
 @app.post('/api/corridas')
@@ -656,6 +665,12 @@ async def ws(sock: WebSocket):
 
 
 # ---------- aplicativos ----------
+@app.get('/passageiro')
+def so_passageiro():
+    # link para mandar ao pessoal: abre direto a página de pedir viagem
+    return FileResponse(FRONT / 'passageiro.html')
+
+
 @app.get('/')
 def inicio():
     return FileResponse(FRONT / 'index.html')

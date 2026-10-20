@@ -4,7 +4,7 @@
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <link rel="stylesheet" href="estilo.css">
 </head><body>
-<header><div class="topo"><h1>Pedir <span>Pool</span></h1><div class="acoes"><span class="modo" id="con"><i></i> Conectando…</span><a class="aviso" style="margin:0" href="index.html?config=1">Servidor</a></div></div></header>
+<header><div class="topo"><h1>Pedir <span>Pool</span></h1><div class="acoes"><span class="modo" id="con"><i></i> Conectando…</span></div></div></header>
 <main>
   <div class="grade">
     <div class="pilha">
@@ -21,11 +21,13 @@
     <div class="pilha">
       <div class="painel">
         <h2>Meus dados</h2>
-        <p class="aviso">Ficam salvos neste aparelho. Assim a central sabe quem está pedindo mesmo que você não fale o nome.</p>
+        <p class="aviso">Pedidos feitos aqui saem no seu nome. Para pedir para outra pessoa, fale o nome e a matrícula dela, ou marque “Para outra pessoa” abaixo.</p>
         <div class="form">
+          <label>Matrícula<input type="text" id="mat" inputmode="numeric" readonly></label>
           <label>Nome<input type="text" id="nome" autocomplete="name"></label>
-          <label>Matrícula<input type="text" id="mat" inputmode="numeric"></label>
         </div>
+        <p class="aviso" id="gps-pas" style="margin:8px 0 0"></p>
+        <div class="acoes" style="margin-top:8px"><button class="btn" id="sair" type="button">Sair (outra matrícula)</button></div>
       </div>
       <div class="painel"><h2>Voz</h2><div id="voz-cfg"></div></div>
       <div class="painel">
@@ -35,6 +37,9 @@
           <label>Levar para<select id="destino" required></select></label>
           <label>Passageiros<input type="number" id="pax" min="1" max="15" value="1"></label>
           <label class="check" style="align-self:end"><input type="checkbox" id="urg"> Urgente</label>
+          <label class="check cheia"><input type="checkbox" id="outra"> Para outra pessoa</label>
+          <label class="outra" hidden>Nome de quem vai<input type="text" id="o-nome" autocomplete="off"></label>
+          <label class="outra" hidden>Matrícula de quem vai<input type="text" id="o-mat" inputmode="numeric" autocomplete="off"></label>
           <div class="acoes cheia"><button class="btn principal" type="submit">Pedir pool</button></div>
         </form>
       </div>
@@ -47,30 +52,52 @@
 <script>
 (async function () {
   const { $, esc, por, pill, hora, MIN, api, ls, clienteId } = App;
-  App.painelVoz($('voz-cfg'));
-  $('nome').value = ls.get('nome') || ''; $('mat').value = ls.get('matricula') || '';
-  $('nome').onchange = () => ls.set('nome', $('nome').value.trim());
-  $('mat').onchange = () => ls.set('matricula', $('mat').value.replace(/\D/g, ''));
-  const eu = () => ({ nome: $('nome').value.trim() || null, matricula: $('mat').value.replace(/\D/g, '') || null });
+  // posição do celular: a central usa como origem quando a pessoa não diz onde está, e o formulário já vem com o local mais perto
+  let pos = null, origemMexida = false;
+  const pertoDe = p => {
+    let melhor = null, dm = Infinity;
+    for (const l of App.locais) { const d = Math.hypot((l.lat - p.lat) * 111.3, (l.lon - p.lon) * 111.3 * Math.cos(p.lat * Math.PI / 180)); if (d < dm) { dm = d; melhor = l; } }
+    return melhor && dm <= 0.4 ? melhor : null;
+  };
+  const mostrarGps = () => {
+    if (!pos) return;
+    const l = pertoDe(pos);
+    $('gps-pas').innerHTML = l ? `📍 Você está perto de <b>${esc(l.nome)}</b> (±${Math.round(pos.precisao)} m).` : `📍 Localização ativa (±${Math.round(pos.precisao)} m)${App.locais.length ? ', longe dos locais cadastrados' : ''}.`;
+    if (l && !origemMexida && $('origem').options.length > 1) $('origem').value = l.id;
+  };
+  if (navigator.geolocation) navigator.geolocation.watchPosition(p => { pos = { lat: p.coords.latitude, lon: p.coords.longitude, precisao: p.coords.accuracy }; mostrarGps(); },
+    e => { $('gps-pas').textContent = 'Sem localização (' + e.message + '). Libere a localização para este site para a central saber onde você está.'; },
+    { enableHighAccuracy: true, maximumAge: 15000 });
+  const eu = () => ({ nome: $('nome').value.trim() || null, matricula: $('mat').value.replace(/\D/g, '') || null, ...(pos || {}) });
 
   let minha = ls.get('minhaViagem');
   App.caixaVoz($('voz'), { canal: 'app', ident: eu, aoResponder: r => { if (r.criada && r.corrida) { minha = r.corrida.id; ls.set('minhaViagem', minha); } if (r.interpretacao.matricula && !$('mat').value) { $('mat').value = r.interpretacao.matricula; ls.set('matricula', r.interpretacao.matricula); } render(); } });
 
   await App.iniciar($('con'));
+  App.painelVoz($('voz-cfg'));
+  $('nome').value = ls.get('nome') || ''; $('mat').value = ls.get('matricula') || '';
+  $('nome').onchange = () => ls.set('nome', $('nome').value.trim());
+  $('sair').onclick = () => { ls.set('minhaViagem', ''); ls.set('nome', ''); App.sair(); };
+  $('outra').onchange = () => document.querySelectorAll('.outra').forEach(e => { e.hidden = !$('outra').checked; });
   const opc = App.locais.slice().sort((a, b) => a.nome.localeCompare(b.nome)).map(l => `<option value="${l.id}">${esc(l.nome)}</option>`).join('');
   $('origem').innerHTML = '<option value="">— escolher —</option>' + opc; $('destino').innerHTML = $('origem').innerHTML;
+  $('origem').onchange = () => { origemMexida = true; };
+  mostrarGps();
   $('form').onsubmit = async ev => {
     ev.preventDefault();
     try {
+      const outra = $('outra').checked, oMat = $('o-mat').value.replace(/\D/g, ''), oNome = $('o-nome').value.trim();
+      if (outra && (!oMat || !oNome)) return App.toast('Informe o nome e a matrícula de quem vai na viagem.');
       const r = await api('/api/corridas', { origem: $('origem').value, destino: $('destino').value, passageiros: +$('pax').value || 1, urgente: $('urg').checked,
-        solicitante: eu().nome || '', matricula: eu().matricula || '', canal: 'app', clienteId });
+        solicitante: outra ? oNome : eu().nome || '', matricula: outra ? oMat : eu().matricula || '', canal: 'app', clienteId,
+        posPassageiro: pos, pedidoPor: outra ? { nome: eu().nome || '', matricula: eu().matricula || '' } : null });
       minha = r.corrida.id; ls.set('minhaViagem', minha); App.falar(r.fala); App.toast(r.fala); render();
     } catch (e) { App.toast(e.message); }
   };
 
   function minhaCorrida(est) {
     const m = eu().matricula;
-    const cs = est.corridas.filter(c => c.id === minha || c.criadoPor === clienteId || (m && c.matricula === m));
+    const cs = est.corridas.filter(c => c.id === minha || c.criadoPor === clienteId || (m && (c.matricula === m || (c.pedidoPor && c.pedidoPor.matricula === m))));
     return cs.find(c => c.id === minha) || cs[0];
   }
   function render() {
@@ -82,14 +109,15 @@
     if (r.status === 'sem_carro') topo = `<p>${esc(r.observacao || 'Sem carro disponível. Seu pedido está na fila.')}</p>`;
     else if (r.status === 'agendada') topo = `<p>Agendado para ${hora(r.agendadoPara)}.</p>`;
     else if (m && r.etaAgora) topo = `<div class="eta">${Math.max(0, Math.round((r.etaAgora - t) / MIN))}<small> min</small></div>
-      <div>Chega por volta de <b>${hora(r.etaAgora)}</b> · Carro <b>${esc(m.id)}</b> · ${esc(m.nome)} · perto de ${esc(m.onde)}</div>
+      <div>Chega por volta de <b>${hora(r.etaAgora)}</b> · Carro <b>${esc(m.id)}</b> · ${esc(m.motorista || m.nome)} · perto de ${esc(m.onde)}</div>
       ${m.paradoMin >= 2 && r.status === 'a_caminho' ? `<div class="falta">Carro parado há ${Math.round(m.paradoMin)} min</div>` : ''}`;
-    else if (m) topo = `<div>Carro <b>${esc(m.id)}</b> · ${esc(m.nome)}</div>`;
+    else if (m) topo = `<div>Carro <b>${esc(m.id)}</b> · ${esc(m.motorista || m.nome)}</div>`;
     const passos = [['Pedido feito', r.criadoEm], ['Carro definido', r.atribuidoEm], ['Saiu para te buscar', r.saiuParaBuscaEm], ['Carro chegou', r.chegouOrigemEm], ['Embarque', r.iniciouViagemEm], ['Chegou ao destino', r.finalizadoEm]];
     const aberta = ['agendada', 'sem_carro', 'oferecida', 'na_fila', 'a_caminho'].includes(r.status);
     por('viagem', `<div class="pilha" style="gap:10px">
       <div class="acoes">${pill(r.status)}<span class="id">${esc(r.id)}</span></div>
       <div class="rota-txt">${esc(App.nomeLocal(r.origem))} → ${esc(App.nomeLocal(r.destino))}</div>
+      ${r.pedidoPor ? `<div class="aviso">Para ${esc(r.solicitante || 'outra pessoa')}${r.matricula ? ' (mat. ' + esc(r.matricula) + ')' : ''}, pedido por ${esc(r.pedidoPor.nome || 'mat. ' + r.pedidoPor.matricula)}</div>` : ''}
       ${topo}
       ${r.compartilhada && !['concluida', 'cancelada'].includes(r.status) ? `<div class="resposta" style="border-left-color:var(--info)">Viagem compartilhada: o carro também leva outro(s) passageiro(s) e pode fazer paradas antes do seu destino.${r.etaDestino ? ' Chegada prevista ao destino: <b>' + hora(r.etaDestino) + '</b>.' : ''}</div>` : r.status === 'em_viagem' && r.etaDestino ? `<div>Chegada prevista ao destino: <b>${hora(r.etaDestino)}</b></div>` : ''}
       <div class="linha-tempo">${passos.map(([n, v]) => `<div class="${v ? '' : 'pend'}"><span>${n}</span><span>${hora(v)}</span></div>`).join('')}</div>
