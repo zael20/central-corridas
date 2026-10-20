@@ -4,54 +4,181 @@
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <link rel="stylesheet" href="estilo.css">
 <style>
-  .alerta { position: fixed; inset: 0; z-index: 30; background: rgba(0,0,0,.55); display: flex; align-items: center; justify-content: center; padding: 16px; }
-  .alerta .painel { max-width: 460px; width: 100%; border: 3px solid var(--bad); }
-  .alerta p { font-size: 18px; font-weight: 600; margin: 0 0 12px; }
+  /* Tela do motorista no estilo app de corrida: mapa na tela inteira, painéis por cima. */
+  html, body { height: 100%; overflow: hidden; }
+  body::before { display: none; }
+  .mapa-fundo { position: fixed; inset: 0; height: auto; border-radius: 0; z-index: 0; }
+  .barra-topo { position: fixed; z-index: 10; top: calc(env(safe-area-inset-top, 0px) + 10px); left: 10px; right: 10px;
+    display: flex; align-items: center; gap: 10px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px;
+    padding: 8px 10px 8px 14px; box-shadow: 0 4px 14px rgba(0,0,0,.25); }
+  .barra-topo .quem { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+  .barra-topo .quem b { font-size: 17px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .barra-topo .quem span { font-size: 13px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .barra-topo .modo { font-size: 12px; }
+  .redondo { width: 44px; height: 44px; border-radius: 50%; padding: 0; font-size: 20px; line-height: 1; flex: none; }
+  .centralizar { position: fixed; z-index: 9; right: 12px; bottom: calc(var(--folha-h, 0px) + 14px); box-shadow: 0 3px 10px rgba(0,0,0,.3);
+    background: var(--surface); transition: bottom .25s; }
+
+  .folha { position: fixed; z-index: 10; left: 0; right: 0; bottom: 0; max-height: 62vh; display: flex; flex-direction: column;
+    background: var(--surface); border-radius: 16px 16px 0 0; box-shadow: 0 -4px 18px rgba(0,0,0,.28);
+    padding-bottom: env(safe-area-inset-bottom, 0px); transition: transform .25s ease; touch-action: pan-y; }
+  .folha.recolhida { transform: translateY(calc(100% - 74px - env(safe-area-inset-bottom, 0px))); }
+  .alca { padding: 8px 0 2px; display: flex; justify-content: center; cursor: grab; }
+  .alca span { width: 44px; height: 5px; border-radius: 3px; background: var(--line); }
+  .resumo { padding: 4px 16px 10px; font-weight: 600; display: flex; align-items: center; gap: 8px; min-height: 30px; }
+  .resumo .txt { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .folha-corpo { overflow-y: auto; padding: 0 16px 16px; display: flex; flex-direction: column; gap: 12px; }
+  .folha:not(.recolhida) .resumo { display: none; }
+
+  .trajeto { display: grid; grid-template-columns: 16px 1fr; column-gap: 10px; row-gap: 4px; align-items: center; }
+  .trajeto .bola { width: 12px; height: 12px; border-radius: 50%; border: 3px solid var(--info); background: var(--surface); }
+  .trajeto .bola.fim { border-color: var(--accent); background: var(--accent); border-radius: 2px; }
+  .trajeto .linha { width: 3px; height: 16px; background: var(--line); margin-left: 5px; }
+  .trajeto .lugar { font-size: 17px; font-weight: 600; }
+  .passageiro { display: flex; align-items: center; gap: 10px; }
+  .passageiro .avatar { width: 40px; height: 40px; border-radius: 50%; background: var(--surface-2); display: flex; align-items: center;
+    justify-content: center; font-weight: 700; color: var(--muted); flex: none; }
+  .cartao { border: 1px solid var(--line); border-radius: 10px; padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+  .cartao.proxima { background: var(--surface-2); }
+  .cartao.proxima .avatar { background: var(--surface); }
   .roteiro { margin: 0; padding-left: 22px; display: flex; flex-direction: column; gap: 10px; }
   .roteiro li { display: flex; flex-direction: column; gap: 6px; }
   .roteiro li.agora::marker { color: var(--accent); font-weight: 700; }
+
+  .alerta { position: fixed; inset: 0; z-index: 30; background: rgba(0,0,0,.55); display: flex; align-items: center; justify-content: center; padding: 16px; }
+  .alerta .painel { max-width: 460px; width: 100%; border: 3px solid var(--bad); max-height: 90vh; overflow-y: auto; }
+  .alerta.oferta .painel { border-color: var(--accent); }
+  .alerta p.grande { font-size: 18px; font-weight: 600; margin: 0 0 12px; }
+  .contagem { font-size: 13px; color: var(--muted); }
+  .tela-cheia { position: fixed; inset: 0; z-index: 20; background: var(--bg); overflow-y: auto; padding: calc(env(safe-area-inset-top, 0px) + 16px) 16px 24px; }
+  .tela-cheia .painel { max-width: 520px; margin: 0 auto 12px; }
 </style>
 </head><body>
-<header><div class="topo"><h1>App do <span>Motorista</span></h1><div class="acoes"><span class="modo" id="con"><i></i> Conectando…</span><a class="aviso" style="margin:0" href="index.html?config=1">Servidor</a></div></div></header>
-<main style="max-width:720px">
-  <div class="pilha">
-    <div class="painel">
-      <div class="form">
-        <label>Meu carro<select id="carro"></select></label>
-        <div class="acoes" style="align-self:end" id="status"></div>
-      </div>
-      <p class="aviso" id="gps" style="margin:8px 0 0"></p>
-    </div>
-    <div class="painel destaque"><h2>Corrida atual</h2><div id="atual"></div></div>
-    <div class="painel"><h2>Voz</h2><div id="voz-cfg"></div></div>
-    <div class="painel"><h2>Próximas</h2><div class="lista" id="fila"></div></div>
-    <div class="painel"><div class="mapa-sat" id="mapa"></div><p class="aviso" id="rota-info" style="margin:6px 0 0"></p></div>
+<div class="mapa-sat mapa-fundo" id="mapa"></div>
+
+<div class="barra-topo">
+  <div class="quem"><b id="q-nome">Motorista</b><span id="q-carro">Carro não escolhido</span></div>
+  <span class="modo" id="con"><i></i> Conectando…</span>
+  <button class="btn redondo" id="menu-btn" aria-label="Menu">☰</button>
+</div>
+<button class="btn redondo centralizar" id="centralizar" aria-label="Centralizar o mapa">⌖</button>
+
+<section class="folha" id="folha">
+  <div class="alca" id="alca" aria-label="Mostrar ou esconder o painel"><span></span></div>
+  <div class="resumo" id="resumo"></div>
+  <div class="folha-corpo">
+    <div id="atual"></div>
+    <div id="fila"></div>
+    <p class="aviso" id="rota-info" style="margin:0"></p>
+    <div class="acoes" id="status"></div>
+    <p class="aviso" id="gps" style="margin:0"></p>
   </div>
-</main>
-<div class="alerta" id="alerta" hidden><div class="painel"><h2>Mensagem da central</h2><p id="al-txt"></p><div class="pilha" style="gap:8px" id="al-op"></div></div></div>
+</section>
+
+<!-- começo do turno: carro + matrícula do motorista -->
+<div class="tela-cheia" id="entrada" hidden>
+  <div class="painel">
+    <h2>Começar o turno</h2>
+    <div class="form">
+      <label>Carro<select id="carro"></select></label>
+      <label>Sua matrícula<input type="text" id="e-mat" inputmode="numeric" autocomplete="off"></label>
+      <label id="e-nome-l" hidden>Seu nome<input type="text" id="e-nome" autocomplete="name"></label>
+    </div>
+    <p class="falta" id="e-erro" hidden></p>
+    <div class="acoes" style="margin-top:10px"><button class="btn grande principal" id="e-ok">Começar</button></div>
+    <p class="aviso" style="margin-top:10px">O app envia a localização do carro enquanto você estiver em operação, mesmo com a tela desligada.</p>
+  </div>
+</div>
+
+<!-- menu -->
+<div class="tela-cheia" id="menu" hidden>
+  <div class="painel">
+    <div class="acoes" style="justify-content:space-between"><h2 style="margin:0">Menu</h2><button class="btn" id="menu-fechar">Fechar</button></div>
+  </div>
+  <div class="painel"><h2>Turno</h2><div class="pilha" style="gap:8px">
+    <button class="btn grande" id="m-op"></button>
+    <button class="btn grande" id="m-trocar">Trocar motorista ou carro</button>
+  </div></div>
+  <div class="painel"><h2>Voz</h2><div id="voz-cfg"></div></div>
+  <div class="painel"><h2>Acesso</h2><p class="aviso" id="m-acesso"></p><div class="acoes"><button class="btn" id="m-sair">Sair deste acesso</button></div></div>
+  <div class="painel"><h2>Servidor</h2><p class="aviso" id="m-srv"></p><a class="btn" href="index.html?config=1">Trocar servidor</a></div>
+</div>
+
+<div class="alerta oferta" id="oferta" hidden><div class="painel" id="of-painel"></div></div>
+<div class="alerta" id="alerta" hidden><div class="painel"><h2>Mensagem da central</h2><p class="grande" id="al-txt"></p><div class="pilha" style="gap:8px" id="al-op"></div></div></div>
+
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="fixo.js"></script>
 <script src="comum.js"></script>
 <script>
 (async function () {
-  const { $, esc, por, pill, hora, MIN, api, ls } = App;
-  let meu = ls.get('meuCarro'), vistos = new Set(), checVistas = new Set(), primeiro = true;
+  const { $, esc, por, pill, hora, api, ls } = App;
+  let meu = ls.get('meuCarro'), vistos = new Set(), checVistas = new Set(), ofertasVistas = new Set(), primeiro = true, trocando = false, offset = 0;
   App.painelVoz($('voz-cfg'));
-  await App.iniciar($('con'), { papel: 'operacao' });
+  por('m-srv', esc(App.SERVIDOR));
+  por('m-acesso', ls.get('matricula') && ls.get('perfil') ? `Entrou como ${esc(ls.get('nome') || '')} (mat. ${esc(ls.get('matricula'))}, ${esc(ls.get('perfil'))}).` : 'Entrou com o código da operação.');
+  $('m-sair').onclick = () => { if (confirm('Sair deste acesso? Vai pedir matrícula e código de novo.')) App.sair(); };
+  await App.iniciar($('con'), { papel: 'motorista' });
 
-  const enviar = async (caminho, dados) => { try { await api(caminho, dados || {}); } catch (e) { App.toast(e.message); } };
-  $('carro').onchange = () => { meu = $('carro').value; ls.set('meuCarro', meu); vistos.clear(); primeiro = true; render(); };
+  const enviar = async (caminho, dados) => { try { return await api(caminho, dados || {}); } catch (e) { App.toast(e.message); throw e; } };
+  const agora = () => Date.now() + offset;
+  const iniciais = n => String(n || '?').trim().split(/\s+/).map(p => p[0]).slice(0, 2).join('').toUpperCase();
+  const meuCarro = () => App.estado && App.estado.motoristas.find(x => x.id === meu);
+
+  // ---------- painel de baixo: arrastar para baixo deixa só o mapa ----------
+  const folha = $('folha');
+  const altura = () => document.documentElement.style.setProperty('--folha-h', (folha.classList.contains('recolhida') ? 74 : folha.offsetHeight) + 'px');
+  const recolher = sim => { folha.classList.toggle('recolhida', sim); setTimeout(altura, 260); };
+  $('alca').onclick = () => recolher(!folha.classList.contains('recolhida'));
+  $('resumo').onclick = () => recolher(false);
+  let y0 = null;
+  folha.addEventListener('touchstart', e => { const c = folha.querySelector('.folha-corpo'); y0 = (c.scrollTop <= 0 || folha.classList.contains('recolhida')) ? e.touches[0].clientY : null; }, { passive: true });
+  folha.addEventListener('touchend', e => {
+    if (y0 == null) return; const d = e.changedTouches[0].clientY - y0; y0 = null;
+    if (d > 50) recolher(true); else if (d < -50) recolher(false);
+  });
+  if (window.ResizeObserver) new ResizeObserver(altura).observe(folha);
+  $('centralizar').onclick = () => { const el = $('mapa'); if (el._mapa) el._mapa.enquadrado = ''; render(); };
+
+  // ---------- começo do turno ----------
+  $('carro').onchange = () => { meu = $('carro').value; ls.set('meuCarro', meu); vistos.clear(); primeiro = true; };
+  $('e-ok').onclick = async () => {
+    const erro = $('e-erro'); erro.hidden = true;
+    const carro = $('carro').value, mat = $('e-mat').value.replace(/\D/g, ''), nome = $('e-nome').value.trim();
+    if (!carro || !mat) { erro.hidden = false; erro.textContent = 'Escolha o carro e informe a sua matrícula.'; return; }
+    meu = carro; ls.set('meuCarro', meu); ls.set('matricula', mat);
+    try {
+      await api(`/api/motoristas/${carro}/condutor`, { matricula: mat, nome });
+      if (meuCarro() && meuCarro().modo !== 'real') await api(`/api/motoristas/${carro}/modo`, { modo: 'real' });
+      await api(`/api/motoristas/${carro}/ativo`, { ativo: true });
+      trocando = false; $('entrada').hidden = true; vistos.clear(); primeiro = true; render();
+    } catch (e) {
+      erro.hidden = false; erro.textContent = e.message;
+      if (/nome/i.test(e.message)) { $('e-nome-l').hidden = false; $('e-nome').focus(); }
+    }
+  };
+
+  // ---------- menu ----------
+  $('menu-btn').onclick = () => { $('menu').hidden = false; render(); };
+  $('menu-fechar').onclick = () => { $('menu').hidden = true; };
+  $('m-op').onclick = () => { const m = meuCarro(); if (m) enviar(`/api/motoristas/${m.id}/ativo`, { ativo: !m.ativo }).catch(() => {}); $('menu').hidden = true; };
+  $('m-trocar').onclick = () => { trocando = true; $('menu').hidden = true; render(); };
 
   function render() {
     const est = App.estado; if (!est) return;
-    const ops = '<option value="">— escolher —</option>' + est.motoristas.map(m => `<option value="${m.id}" ${m.id === meu ? 'selected' : ''}>${esc(m.id)} · ${esc(m.nome)}</option>`).join('');
-    por('carro', ops);
-    const m = est.motoristas.find(x => x.id === meu);
-    if (!m) { por('atual', '<p class="vazio">Escolha o seu carro acima.</p>'); por('fila', ''); por('status', ''); return; }
-    por('status', `${m.modo !== 'real' ? '<button class="btn principal" id="assumir">Assumir este carro</button>' : ''}
-      <button class="btn" id="op">${m.ativo ? 'Sair de operação' : 'Entrar em operação'}</button>${m.ativo ? '' : pill('fora', 'fora de operação')}`);
-    if ($('assumir')) $('assumir').onclick = () => enviar(`/api/motoristas/${m.id}/modo`, { modo: 'real' });
-    $('op').onclick = () => enviar(`/api/motoristas/${m.id}/ativo`, { ativo: !m.ativo });
+    if (est.agora) offset = est.agora - Date.now();
+    por('carro', '<option value="">— escolher —</option>' + est.motoristas.map(m => `<option value="${m.id}" ${m.id === meu ? 'selected' : ''}>${esc(m.id)} · ${esc(m.nome)}</option>`).join(''));
+    const m = meuCarro();
+    $('entrada').hidden = !(trocando || !m || m.modo !== 'real' || !m.condutor);
+    if (!$('entrada').hidden && !$('e-mat').value) $('e-mat').value = (m && m.condutor && m.condutor.matricula) || ls.get('matricula') || '';
+    if (!m) { por('q-nome', 'Motorista'); por('q-carro', 'Carro não escolhido'); return; }
+
+    const nomeMot = (m.condutor && m.condutor.nome) || m.nome;
+    por('q-nome', esc(nomeMot));
+    por('q-carro', `${esc(m.id)}${m.condutor ? ' · mat. ' + esc(m.condutor.matricula) : ''} · ${m.ativo ? 'em operação' : 'fora de operação'}`);
+    $('m-op').textContent = m.ativo ? 'Sair de operação' : 'Entrar em operação';
+    por('status', m.ativo ? '' : `${pill('fora', 'fora de operação')}<button class="btn principal" id="voltar-op">Entrar em operação</button>`);
+    if ($('voltar-op')) $('voltar-op').onclick = () => enviar(`/api/motoristas/${m.id}/ativo`, { ativo: true }).catch(() => {});
 
     const corr = Object.fromEntries(est.corridas.map(c => [c.id, c]));
     const r = corr[m.atual], fila = m.fila.map(id => corr[id]).filter(Boolean);
@@ -61,33 +188,57 @@
     for (const c of [...ativas, ...fila]) if (c) vistos.add(c.id);
     primeiro = false;
 
+    const quem = c => `<div class="passageiro"><div class="avatar">${esc(iniciais(c.solicitante))}</div><div><b>${esc(c.solicitante || 'Passageiro')}</b>
+      <div class="aviso">${c.matricula ? 'mat. ' + esc(c.matricula) + ' · ' : ''}${c.passageiros} pessoa(s)${c.urgente ? ' · <b class="falta">urgente</b>' : ''}</div></div></div>`;
+    const trajeto = c => `<div class="trajeto"><span class="bola"></span><span class="lugar">${esc(App.nomeLocal(c.origem))}</span>
+      <span class="linha"></span><span></span><span class="bola fim"></span><span class="lugar">${esc(App.nomeLocal(c.destino))}</span></div>`;
+
     const paradas = (m.rota && m.rota.paradas) || [];
-    if (!r) por('atual', `<p class="vazio">${m.ativo ? 'Livre. A próxima corrida aparece aqui sozinha.' : 'Fora de operação.'}</p>`);
-    else if (paradas.length) {
-      // viagem compartilhada: o roteiro com as paradas na ordem, cada uma com o seu botão
-      const quem = c => `${esc(c.solicitante || 'passageiro')}${c.matricula ? ' (mat. ' + esc(c.matricula) + ')' : ''} · ${c.passageiros} pessoa(s)`;
+    let resumo = '';
+    if (!r) {
+      por('atual', `<div class="cartao"><b>${m.ativo ? 'Livre' : 'Fora de operação'}</b><span class="aviso">${m.ativo ? 'A próxima corrida aparece aqui sozinha.' : 'Toque em “Entrar em operação” para receber corridas.'}</span></div>`);
+      resumo = m.ativo ? 'Livre · aguardando corrida' : 'Fora de operação';
+    } else if (paradas.length) {
+      // viagem compartilhada: roteiro com as paradas na ordem, cada uma com o seu botão
       const lugares = (m.capacidade || 4) - ativas.reduce((s, c) => s + (c.passageiros || 1), 0);
-      por('atual', `<div class="pilha" style="gap:10px">
-        <div class="acoes">${pill('a_caminho', 'viagem compartilhada')}<span>${ativas.length} corridas · ${m.aBordo || 0} a bordo · ${lugares} lugar(es) livre(s)</span></div>
+      por('atual', `<div class="cartao"><div class="acoes">${pill('a_caminho', 'viagem compartilhada')}<span class="aviso">${ativas.length} corridas · ${m.aBordo || 0} a bordo · ${lugares} lugar(es) livre(s)</span></div>
         <ol class="roteiro">${paradas.map((s, i) => {
           const c = corr[s.c]; if (!c) return '';
           const acao = s.t === 'buscar' ? (c.status === 'a_caminho' ? ['cheguei', `Cheguei em ${App.nomeLocal(s.l)}`] : c.status === 'no_local' ? ['embarcou', `${c.solicitante || 'Passageiro'} embarcou`] : null)
             : c.status === 'em_viagem' ? ['finalizar', `Deixei ${c.solicitante || 'o passageiro'} em ${App.nomeLocal(s.l)}`] : null;
-          return `<li class="${i === 0 ? 'agora' : ''}"><div><b>${s.t === 'buscar' ? 'Buscar' : 'Deixar'}</b> ${quem(c)} <b>${s.t === 'buscar' ? 'em' : 'em'} ${esc(App.nomeLocal(s.l))}</b> <span class="aviso">· por volta de ${hora(s.chega)}</span></div>
+          return `<li class="${i === 0 ? 'agora' : ''}"><div><b>${s.t === 'buscar' ? 'Buscar' : 'Deixar'}</b> ${esc(c.solicitante || 'passageiro')} · ${c.passageiros} pessoa(s) <b>em ${esc(App.nomeLocal(s.l))}</b> <span class="aviso">· por volta de ${hora(s.chega)}</span></div>
             ${acao ? `<button class="btn ${i === 0 ? 'grande principal' : ''}" data-acao="${acao[0]}" data-id="${c.id}">${esc(acao[1])}</button>` : ''}</li>`;
         }).join('')}</ol></div>`);
+      const s0 = paradas[0];
+      resumo = s0 ? `${s0.t === 'buscar' ? 'Buscar em' : 'Deixar em'} ${App.nomeLocal(s0.l)}` : 'Viagem compartilhada';
     } else {
       const botao = { a_caminho: ['cheguei', 'Cheguei no local'], no_local: ['embarcou', 'Passageiro embarcou'], em_viagem: ['finalizar', 'Finalizar corrida'] }[r.status];
-      por('atual', `<div class="pilha" style="gap:10px">
-        <div class="acoes">${pill(r.status)}<span class="id">${esc(r.id)}</span>${r.urgente ? '<span class="pill s-sem_carro">urgente</span>' : ''}</div>
-        <div class="rota-txt">${esc(App.nomeLocal(r.origem))} → ${esc(App.nomeLocal(r.destino))}</div>
-        <div>${esc(r.solicitante || 'Solicitante não informado')}${r.matricula ? ' · mat. ' + esc(r.matricula) : ''} · ${r.passageiros} pessoa(s)</div>
+      por('atual', `<div class="cartao"><div class="acoes">${pill(r.status)}<span class="id">${esc(r.id)}</span></div>
+        ${quem(r)}${trajeto(r)}
         ${botao ? `<button class="btn grande principal" data-acao="${botao[0]}" data-id="${r.id}">${botao[1]}</button>` : ''}</div>`);
+      resumo = `${App.nomeLocal(r.origem)} → ${App.nomeLocal(r.destino)}`;
     }
-    por('fila', fila.length ? fila.map(c => `<div class="item"><span class="id">${hora(c.criadoEm)}</span><span>${esc(App.nomeLocal(c.origem))} → ${esc(App.nomeLocal(c.destino))}</span>${pill(c.status)}
-      ${c.status === 'oferecida' ? `<div class="sub acoes"><button class="btn ok" data-acao="aceitar" data-id="${c.id}">Aceitar</button><button class="btn perigo" data-acao="recusar" data-id="${c.id}">Recusar</button><span>aceita sozinho em 60 s</span></div>` : ''}</div>`).join('') : '<p class="vazio">Nenhuma corrida na fila.</p>');
-    App.mapa($('mapa'), { carro: m.id, alvos: paradas.length ? [...new Set(paradas.map(s => s.l))] : r ? [r.origem, r.destino] : [] });
-    por('rota-info', r ? (paradas.length ? 'Linha: o caminho passando pelas paradas, na ordem do roteiro. ' : '') + (m.rota && m.rota.pelaEstrada ? 'Rota pela estrada.' + (paradas.length ? '' : ' Tracejado: até o embarque · linha cheia: até o destino.') : 'Rota em linha reta (trajeto pela estrada ainda não disponível para este trecho).') : '');
+    // próximas: as já aceitas/automáticas aparecem como “próxima corrida”; a que pede aceite abre o pop-up
+    const proximas = fila.filter(c => c.status !== 'oferecida');
+    por('fila', proximas.length ? proximas.map((c, i) => `<div class="cartao proxima"><div class="acoes"><b>${i ? 'Depois' : 'Próxima corrida'}</b>
+      <span class="aviso">${c.etaPrevistoEm ? 'prevista para ~' + hora(c.etaPrevistoEm) : 'na fila'}</span></div>${quem(c)}${trajeto(c)}</div>`).join('') : '');
+    por('resumo', `<span class="txt">${esc(resumo)}</span>${proximas.length ? `<span class="pill s-na_fila">+${proximas.length}</span>` : ''}`);
+
+    App.mapa($('mapa'), { carro: m.id, alvos: paradas.length ? [...new Set(paradas.map(s => s.l))] : r ? [r.origem, r.destino] : [],
+      margem: () => ({ topo: 80, baixo: folha.classList.contains('recolhida') ? 80 : folha.offsetHeight }) });
+    por('rota-info', r ? (m.rota && m.rota.pelaEstrada ? 'Rota pela estrada.' + (paradas.length ? '' : ' Tracejado: até o embarque · linha cheia: até o destino.') : 'Rota em linha reta (trajeto pela estrada ainda não disponível para este trecho).') : '');
+
+    // corrida oferecida: pop-up para aceitar ou recusar (aceita sozinha no tempo da central)
+    const of = fila.find(c => c.status === 'oferecida');
+    $('oferta').hidden = !of;
+    if (of) {
+      if (!ofertasVistas.has(of.id)) { ofertasVistas.add(of.id); App.bip(); }
+      por('of-painel', `<h2>Nova corrida para você</h2><div class="pilha" style="gap:12px">${quem(of)}${trajeto(of)}
+        <span class="contagem" id="of-cont" data-ate="${(of.atribuidoEm || agora()) + 60000}"></span>
+        <div class="acoes cheia"><button class="btn grande ok" data-acao="aceitar" data-id="${of.id}">Aceitar</button>
+        <button class="btn grande perigo" data-acao="recusar" data-id="${of.id}">Recusar</button></div></div>`);
+      contar();
+    }
 
     // pergunta da central (carro parado / atrasado)
     const chk = est.checagens.find(c => c.carro === m.id && !c.respondidaEm && !c.encerrada);
@@ -103,27 +254,66 @@
             <p class="aviso" style="margin:0">Preencha os dois campos e toque em “Não, é outra pessoa”.</p>` : ''));
       if (!checVistas.has(chk.id)) { checVistas.add(chk.id); App.bip(); App.falar('Mensagem da central. ' + chk.texto); }
     }
+    altura();
   }
+  function contar() {
+    const el = $('of-cont'); if (!el) return;
+    const s = Math.max(0, Math.round((+el.dataset.ate - agora()) / 1000));
+    el.textContent = s ? `Aceita sozinha em ${s} s` : 'Aceitando…';
+  }
+  setInterval(contar, 1000);
+
   document.body.addEventListener('click', ev => {
     const b = ev.target.closest('button'); if (!b) return;
-    if (b.dataset.acao) { b.disabled = true; enviar(`/api/corridas/${b.dataset.id}/${b.dataset.acao}`); }
+    if (b.dataset.acao) { b.disabled = true; enviar(`/api/corridas/${b.dataset.id}/${b.dataset.acao}`).catch(() => { b.disabled = false; }); }
     if (b.dataset.resp) {
       const nome = ($('al-nome') && $('al-nome').value.trim()) || '', mat = ($('al-mat') && $('al-mat').value.replace(/\D/g, '')) || '';
       if (b.dataset.pede && (!nome || !mat)) { App.toast('Informe o nome e a matrícula de quem está no carro.'); ($('al-nome').value ? $('al-mat') : $('al-nome')).focus(); return; }
-      $('alerta').hidden = true; enviar(`/api/checagens/${b.dataset.k}`, { opcao: b.dataset.resp, ...(b.dataset.pede ? { nome, matricula: mat } : {}) });
+      $('alerta').hidden = true; enviar(`/api/checagens/${b.dataset.k}`, { opcao: b.dataset.resp, ...(b.dataset.pede ? { nome, matricula: mat } : {}) }).catch(() => {});
     }
   });
   App.ouvintes.push(msg => { if (msg.tipo === 'estado' || msg.tipo === 'locais_ok' || (msg.tipo === 'checagem' && msg.carro === meu)) render(); });
 
-  // GPS do celular → servidor (só quando o carro foi assumido por este aparelho)
-  if (navigator.geolocation) {
+  // GPS do celular → servidor (só quando o carro foi assumido por este aparelho e está em operação)
+  const rastreio = App.plug().Rastreio;
+  if (rastreio) {
+    // App Android: o envio roda num serviço do próprio Android, que continua com a tela desligada ou o app minimizado.
+    let pedido = '', ocupado = false, avisoErro = '';
+    const desejado = () => { const m = meuCarro(); return m && m.modo === 'real' && m.ativo ? m.id : ''; };
+    async function sincronizar() {
+      if (ocupado) return; ocupado = true;
+      try {
+        const quer = desejado(), st = await rastreio.estado();
+        if (quer && (!st.ativo || st.carro !== quer || pedido !== quer)) {
+          await rastreio.iniciar({ servidor: App.SERVIDOR, carro: quer, token: App.token(), intervalo: 10 });
+          pedido = quer;
+        } else if (!quer && st.ativo) { await rastreio.parar(); pedido = ''; }
+      } catch (e) { if (e.message !== avisoErro) { avisoErro = e.message; App.toast(e.message); } }
+      finally { ocupado = false; }
+      mostrar();
+    }
+    async function mostrar() {
+      let st; try { st = await rastreio.estado(); } catch (e) { return; }
+      const pos = st.lat != null ? `±${Math.round(st.precisao)} m${st.velocidade != null ? ' · ' + Math.round(st.velocidade) + ' km/h' : ''}` : 'aguardando o sinal do GPS…';
+      const linha = !st.ativo ? (desejado() ? 'GPS: ligando…' : 'GPS desligado. Liga sozinho quando você está em operação.')
+        : `GPS ligado (envia com a tela desligada) · ${pos}` + (st.ultimoEnvio ? ` · último envio ${hora(st.ultimoEnvio)}` : '');
+      por('gps', esc(linha) + (st.erro ? `<br><b class="falta">${esc(st.erro)}</b>` : '')
+        + (st.ativo && !st.bateriaLivre ? '<br><button class="btn" id="bateria" style="margin-top:6px">Não deixar o Android pausar o GPS</button>' : ''));
+      if ($('bateria')) $('bateria').onclick = () => rastreio.semRestricaoBateria().then(mostrar);
+    }
+    App.ouvintes.push(msg => { if (msg.tipo === 'estado') sincronizar(); });
+    setInterval(mostrar, 5000);
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) sincronizar(); });
+    sincronizar();
+  } else if (navigator.geolocation) {
     let ultimo = 0;
     navigator.geolocation.watchPosition(p => {
-      $('gps').textContent = `GPS: ${p.coords.latitude.toFixed(5)}, ${p.coords.longitude.toFixed(5)} (±${Math.round(p.coords.accuracy)} m)`;
-      const m = App.estado && App.estado.motoristas.find(x => x.id === meu);
-      if (m && m.modo === 'real' && Date.now() - ultimo > 10000) { ultimo = Date.now(); enviar(`/api/motoristas/${meu}/gps`, { lat: p.coords.latitude, lon: p.coords.longitude, precisao: p.coords.accuracy }); }
+      $('gps').textContent = `GPS do navegador: ±${Math.round(p.coords.accuracy)} m (só envia com esta tela aberta)`;
+      const m = meuCarro();
+      if (m && m.modo === 'real' && Date.now() - ultimo > 10000) { ultimo = Date.now(); enviar(`/api/motoristas/${meu}/gps`, { lat: p.coords.latitude, lon: p.coords.longitude, precisao: p.coords.accuracy }).catch(() => {}); }
     }, e => { $('gps').textContent = 'GPS indisponível: ' + e.message; }, { enableHighAccuracy: true, maximumAge: 5000 });
   }
+  render();
 })();
 </script>
 </body></html>

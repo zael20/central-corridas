@@ -93,7 +93,7 @@ def para_passageiro(est, info):
 
 
 def serve_para(msg, info):
-    if info['papel'] == 'operacao':
+    if info['papel'] in ('operacao', 'motorista'):
         return True
     if msg.get('tipo') == 'fala':
         return bool((info['cliente'] and msg.get('clienteId') == info['cliente']) or (info['mat'] and msg.get('matricula') == info['mat']))
@@ -105,7 +105,7 @@ async def enviar_todos(msg):
     for ws_, info in list(conexoes.items()):
         try:
             if est is not None:
-                await ws_.send_json({'tipo': 'estado', 'estado': est if info['papel'] == 'operacao' else para_passageiro(est, info)})
+                await ws_.send_json({'tipo': 'estado', 'estado': est if info['papel'] != 'passageiro' else para_passageiro(est, info)})
             elif serve_para(msg, info):
                 await ws_.send_json(msg)
         except Exception:
@@ -150,6 +150,8 @@ app = FastAPI(title='Central de Corridas Internas', lifespan=vida, docs_url=None
 LIVRE = {'/api/entrar', '/api/saude'}
 PASSAGEIRO_PODE = [('GET', re.compile(r'^/api/(locais|mapa/config|voz(/info)?)$')),
                    ('POST', re.compile(r'^/api/(assistente|corridas|corridas/[^/]+/cancelar)$'))]
+MOTORISTA_PODE = [('GET', re.compile(r'^/api/(estado|locais|mapa/config|voz(/info)?)$')),
+                  ('POST', re.compile(r'^/api/(assistente|motoristas/[^/]+/(gps|ativo|modo|condutor)|corridas/[^/]+/(cheguei|embarcou|finalizar|aceitar|recusar)|checagens/[^/]+)$'))]
 
 
 def token_de(request):
@@ -163,7 +165,8 @@ async def exigir_codigo(request, chamar):
         papel = acesso.papel(token_de(request))
         if not papel:
             return JSONResponse({'detail': 'Digite o código de acesso.', 'precisa': 'codigo'}, status_code=401)
-        if papel == 'passageiro' and not any(request.method == m and rx.match(p) for m, rx in PASSAGEIRO_PODE):
+        pode = {'passageiro': PASSAGEIRO_PODE, 'motorista': MOTORISTA_PODE}.get(papel)
+        if pode is not None and not any(request.method == m and rx.match(p) for m, rx in pode):
             return JSONResponse({'detail': 'Esta parte é só da central. Digite o código da operação.', 'precisa': 'operacao'}, status_code=403)
     return await chamar(request)
 
@@ -174,14 +177,49 @@ app.add_middleware(CORSMiddleware, allow_origins=['*'], allow_methods=['*'], all
 
 class Entrada(BaseModel):
     codigo: str
+    matricula: str = ''  # acesso por pessoa: matrícula + código
 
 
 @app.post('/api/entrar')
 def entrar(e: Entrada):
-    papel, token = acesso.entrar(e.codigo)
+    papel, token = acesso.entrar(e.codigo, e.matricula)
     if not papel:
-        raise HTTPException(401, 'Código incorreto.')
-    return {'papel': papel, 'token': token}
+        raise HTTPException(401, 'Matrícula ou código incorreto.' if e.matricula.strip() else 'Código incorreto.')
+    u = acesso.quem(token) or {}
+    return {'papel': papel, 'token': token, 'matricula': u.get('matricula', ''), 'nome': u.get('nome', ''), 'perfil': u.get('perfil', '')}
+
+
+# ---------- acesso por pessoa (aba Acessos da central; só adm / código da operação) ----------
+@app.get('/api/usuarios')
+def ver_usuarios():
+    return acesso.usuarios()
+
+
+class Usuario(BaseModel):
+    nome: str = ''
+    perfil: str
+    codigo: str = ''
+
+
+@app.post('/api/usuarios/{mat}')
+def salvar_usuario(mat: str, u: Usuario):
+    try:
+        r = acesso.salvar_usuario(mat, u.nome, u.perfil, u.codigo)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    estado.pessoas.registrar(r['nome'], r['matricula'], 'central')
+    estado.evento('acesso', f"Acesso de {r['nome']} (mat. {r['matricula']}) salvo como {r['perfil']}")
+    return r
+
+
+@app.post('/api/usuarios/{mat}/remover')
+def remover_usuario(mat: str):
+    try:
+        acesso.remover_usuario(mat)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    estado.evento('acesso', f'Acesso da matrícula {mat} removido')
+    return {'ok': True}
 
 
 @app.get('/api/acesso')
@@ -492,6 +530,17 @@ def acao_motorista(mid: str, nome: str, dados: dict | None = None):
             patch.update(geo_para_xy(lat, lon))
         estado.aplicar([{'col': 'motoristas', 'id': mid, 'patch': patch}])
         return {'ok': True}
+    elif nome == 'condutor':  # quem está dirigindo neste turno (o app do motorista pede a matrícula)
+        mat = re.sub(r'\D', '', str(dados.get('matricula') or ''))
+        if not mat:
+            estado.aplicar([{'col': 'motoristas', 'id': mid, 'patch': {'condutor': None}}])
+        else:
+            nome_c = (dados.get('nome') or '').strip() or (estado.pessoas.perfis().get(mat) or {}).get('nome', '')
+            if not nome_c:
+                raise HTTPException(400, 'Matrícula ainda não cadastrada: informe também o nome.')
+            if (dados.get('nome') or '').strip():
+                estado.pessoas.registrar(nome_c, mat, 'motorista')
+            estado.aplicar([{'col': 'motoristas', 'id': mid, 'patch': {'condutor': {'matricula': mat, 'nome': nome_c, 'desde': t}}}])
     elif nome == 'pane':
         central.pane(mid, bool(dados.get('ligar')))
     elif nome == 'remover':
@@ -598,7 +647,7 @@ async def ws(sock: WebSocket):
     conexoes[sock] = info
     try:
         est = visao()
-        await sock.send_json({'tipo': 'estado', 'estado': est if papel == 'operacao' else para_passageiro(est, info)})
+        await sock.send_json({'tipo': 'estado', 'estado': est if papel != 'passageiro' else para_passageiro(est, info)})
         while True:
             await sock.receive_text()  # o cliente só manda "ping"
     except WebSocketDisconnect:
