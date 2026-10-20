@@ -51,7 +51,7 @@
 
   <div id="a-acessos" class="grade" hidden>
     <div class="painel"><h2>Pessoas com acesso</h2>
-      <p class="aviso">Cada pessoa entra com a <b>matrícula</b> e o <b>código</b> cadastrados aqui. <b>Adm</b>: central e cadastro de acessos. <b>Motorista</b>: app do motorista. <b>Passageiro</b>: app de pedir viagem.</p>
+      <p class="aviso">Cada pessoa entra só com a <b>matrícula</b> cadastrada aqui; matrícula fora da lista não entra. <b>Adm</b>: central e cadastro de acessos. <b>Motorista</b>: app do motorista. <b>Passageiro</b>: app de pedir viagem.</p>
       <div class="tabela" style="max-height:520px" id="u-lista"></div>
     </div>
     <div class="pilha">
@@ -60,18 +60,9 @@
           <label>Matrícula<input type="text" id="u-mat" inputmode="numeric" autocomplete="off"></label>
           <label>Nome<input type="text" id="u-nome" autocomplete="off"></label>
           <label>Perfil<select id="u-perfil"><option value="motorista">Motorista</option><option value="passageiro">Passageiro</option><option value="adm">Adm</option></select></label>
-          <label>Código<input type="text" id="u-cod" autocomplete="off" placeholder="mín. 4 caracteres"></label>
           <div class="acoes cheia"><button class="btn principal" id="u-salvar" type="button">Salvar</button><button class="btn" id="u-novo" type="button">Limpar</button></div>
         </div>
-        <p class="aviso" id="u-dica" style="margin-top:8px">O código não aparece depois de salvo. Para trocar, edite a pessoa e digite um código novo; quem estava conectado com o antigo sai.</p>
-      </div>
-      <div class="painel"><h2>Códigos gerais</h2>
-        <p class="aviso">Continuam valendo junto com os acessos por pessoa: o de passageiro serve para quem só vai pedir viagem; o da operação abre tudo. Ao trocar, todo mundo (inclusive quem entrou por matrícula) precisa entrar de novo.</p>
-        <div class="form">
-          <label>Código de passageiro<input type="text" id="a-pass" autocomplete="off"></label>
-          <label>Código da operação<input type="text" id="a-op" autocomplete="off"></label>
-          <div class="acoes cheia"><button class="btn" id="a-salvar" type="button">Trocar códigos</button></div>
-        </div>
+        <p class="aviso" id="u-dica" style="margin-top:8px">Mudar o perfil ou remover a pessoa faz ela sair dos aparelhos onde estava conectada.</p>
       </div>
     </div>
   </div>
@@ -297,7 +288,6 @@
     try { const r = await api('/api/locais/importar', { pontos: j }); App.toast(`${r.importados} pontos importados (${r.marcados} marcados no total).`); $('l-json').value = ''; }
     catch (e) { App.toast(e.message); }
   };
-  api('/api/acesso').then(a => { $('a-pass').value = a.passageiro; $('a-op').value = a.operacao; }).catch(() => {});
   // ---------- aba Acessos ----------
   const PERFIL = { adm: 'Adm', motorista: 'Motorista', passageiro: 'Passageiro' };
   let usuarios = [];
@@ -307,25 +297,20 @@
       <td>${esc(u.matricula)}</td><td>${esc(u.nome)}${u.principal ? ' <span class="aviso">(principal)</span>' : ''}</td><td>${PERFIL[u.perfil]}</td>
       <td class="acoes"><button class="btn" data-uedit="${esc(u.matricula)}">Editar</button>${u.principal ? '' : `<button class="btn perigo" data-urem="${esc(u.matricula)}">Remover</button>`}</td></tr>`).join('')}</tbody></table>`);
   }
-  const limparUsuario = () => { ['u-mat', 'u-nome', 'u-cod'].forEach(id => { $(id).value = ''; }); $('u-mat').disabled = false; $('u-perfil').value = 'motorista'; por('u-titulo', 'Cadastrar acesso'); };
+  const limparUsuario = () => { ['u-mat', 'u-nome'].forEach(id => { $(id).value = ''; }); $('u-mat').disabled = false; $('u-perfil').value = 'motorista'; por('u-titulo', 'Cadastrar acesso'); };
   $('u-novo').onclick = limparUsuario;
   $('u-lista').onclick = async ev => {
     const ed = ev.target.closest('[data-uedit]'), rem = ev.target.closest('[data-urem]');
-    if (ed) { const u = usuarios.find(x => x.matricula === ed.dataset.uedit); $('u-mat').value = u.matricula; $('u-mat').disabled = true; $('u-nome').value = u.nome; $('u-perfil').value = u.perfil; $('u-cod').value = ''; por('u-titulo', 'Editar acesso'); $('u-nome').focus(); }
+    if (ed) { const u = usuarios.find(x => x.matricula === ed.dataset.uedit); $('u-mat').value = u.matricula; $('u-mat').disabled = true; $('u-nome').value = u.nome; $('u-perfil').value = u.perfil; por('u-titulo', 'Editar acesso'); $('u-nome').focus(); }
     if (rem && confirm(`Remover o acesso da matrícula ${rem.dataset.urem}?`)) { try { await api(`/api/usuarios/${rem.dataset.urem}/remover`, {}); carregarUsuarios(); } catch (e) { App.toast(e.message); } }
   };
   $('u-salvar').onclick = async () => {
     try {
-      const r = await api(`/api/usuarios/${encodeURIComponent($('u-mat').value.replace(/\D/g, ''))}`, { nome: $('u-nome').value.trim(), perfil: $('u-perfil').value, codigo: $('u-cod').value.trim() });
+      const r = await api(`/api/usuarios/${encodeURIComponent($('u-mat').value.replace(/\D/g, ''))}`, { nome: $('u-nome').value.trim(), perfil: $('u-perfil').value });
       App.toast(`Acesso de ${r.nome} salvo (${PERFIL[r.perfil]}).`); limparUsuario(); carregarUsuarios();
     } catch (e) { App.toast(e.message); }
   };
   carregarUsuarios();
-  $('a-salvar').onclick = async () => {
-    if (!confirm('Trocar os códigos? Todo mundo vai precisar digitar o código novo.')) return;
-    try { await api('/api/acesso', { passageiro: $('a-pass').value.trim(), operacao: $('a-op').value.trim() }); App.toast('Códigos trocados.'); App.ls.set('acesso', ''); location.reload(); }
-    catch (e) { App.toast(e.message); }
-  };
   $('l-salvar').onclick = async () => {
     try { await api('/api/mapa/config', { maptilerKey: $('l-chave').value.trim(), velocidadeKmh: +$('l-vel').value || null, compartilhar: $('l-comp').checked,
       desvioMaxMin: $('l-desvio').value === '' ? null : +$('l-desvio').value, toleranciaCompartilharMin: $('l-tol').value === '' ? null : +$('l-tol').value }); App.toast('Salvo.'); }
