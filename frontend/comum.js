@@ -104,7 +104,27 @@
   }
 
   // ---------- voz ----------
-  const plug = () => (window.Capacitor && window.Capacitor.Plugins) || {};
+  // Plugins nativos do APK. As telas não usam o @capacitor/core, então o Capacitor.Plugins não vem pronto:
+  // aqui cada plugin que o app Android declara (Capacitor.PluginHeaders) vira um objeto com os métodos dele.
+  let plugins = null;
+  const plug = () => {
+    const cap = window.Capacitor;
+    if (!cap || !cap.nativePromise) return (cap && cap.Plugins) || {};
+    if (!plugins) {
+      plugins = Object.assign({}, cap.Plugins);
+      for (const h of cap.PluginHeaders || []) {
+        if (plugins[h.name]) continue;
+        const o = {};
+        for (const m of h.methods || []) o[m.name] = opcoes => cap.nativePromise(h.name, m.name, opcoes || {});
+        o.addListener = async (eventName, f) => {
+          const callbackId = cap.nativeCallback(h.name, 'addListener', { eventName }, f);
+          return { remove: () => cap.nativePromise(h.name, 'removeListener', { eventName, callbackId }) };
+        };
+        plugins[h.name] = o;
+      }
+    }
+    return plugins;
+  };
   // Voz: prefere as vozes neurais femininas (Edge: "Francisca/Thalita Online (Natural)"), depois a do Google e a Maria do Windows.
   // A escolha e a velocidade ficam salvas neste aparelho (painel "Voz").
   const PREFERIDAS = [/francisca.*natural/i, /thalita.*natural/i, /(brenda|elza|giovanna|leila|leticia|manuela|yara).*natural/i, /natural/i,
@@ -464,6 +484,6 @@
     por(svg, s);
   }
 
-  window.App = { ls, SERVIDOR, clienteId, comToken, $, esc, por, pill, hora, MIN, STATUS, api, iniciar, ouvintes, get estado() { return estado; }, get locais() { return locais; }, get LC() { return LC; },
+  window.App = { ls, SERVIDOR, clienteId, plug, token, comToken, $, esc, por, pill, hora, MIN, STATUS, api, iniciar, ouvintes, get estado() { return estado; }, get locais() { return locais; }, get LC() { return LC; },
     get cfgMapa() { return cfgMapa; }, carregarLocais, falar, painelVoz, ouvir, bip, toast, caixaVoz, mapa, corDe, nomeLocal: id => (LC[id] ? LC[id].nome : id || '') };
 })();

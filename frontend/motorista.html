@@ -115,8 +115,39 @@
   });
   App.ouvintes.push(msg => { if (msg.tipo === 'estado' || msg.tipo === 'locais_ok' || (msg.tipo === 'checagem' && msg.carro === meu)) render(); });
 
-  // GPS do celular → servidor (só quando o carro foi assumido por este aparelho)
-  if (navigator.geolocation) {
+  // GPS do celular → servidor (só quando o carro foi assumido por este aparelho e está em operação)
+  const rastreio = App.plug().Rastreio;
+  if (rastreio) {
+    // App Android: o envio roda num serviço do próprio Android, que continua com a tela desligada ou o app minimizado.
+    let pedido = '', ocupado = false, avisoErro = '';
+    const desejado = () => { const m = App.estado && App.estado.motoristas.find(x => x.id === meu); return m && m.modo === 'real' && m.ativo ? m.id : ''; };
+    async function sincronizar() {
+      if (ocupado) return; ocupado = true;
+      try {
+        const quer = desejado(), st = await rastreio.estado();
+        if (quer && (!st.ativo || st.carro !== quer || pedido !== quer)) {
+          await rastreio.iniciar({ servidor: App.SERVIDOR, carro: quer, token: App.token(), intervalo: 10 });
+          pedido = quer;
+        } else if (!quer && st.ativo) { await rastreio.parar(); pedido = ''; }
+      } catch (e) { if (e.message !== avisoErro) { avisoErro = e.message; App.toast(e.message); } }
+      finally { ocupado = false; }
+      mostrar();
+    }
+    async function mostrar() {
+      let st; try { st = await rastreio.estado(); } catch (e) { return; }
+      const pos = st.lat != null ? `${st.lat.toFixed(5)}, ${st.lon.toFixed(5)} (±${Math.round(st.precisao)} m${st.velocidade != null ? ', ' + Math.round(st.velocidade) + ' km/h' : ''})` : 'aguardando o sinal do GPS…';
+      const linha = !st.ativo ? (desejado() ? 'GPS: ligando…' : 'GPS desligado. Ele liga sozinho quando o carro está assumido e em operação.')
+        : `GPS ligado, envia mesmo com a tela desligada · ${pos}` + (st.ultimoEnvio ? ` · último envio ${hora(st.ultimoEnvio)}` : '');
+      por('gps', esc(linha) + (st.erro ? `<br><b class="falta">${esc(st.erro)}</b>` : '')
+        + (st.ativo && !st.bateriaLivre ? '<br><button class="btn" id="bateria" style="margin-top:6px">Não deixar o Android pausar o GPS</button>' : ''));
+      if ($('bateria')) $('bateria').onclick = () => rastreio.semRestricaoBateria().then(mostrar);
+    }
+    App.ouvintes.push(msg => { if (msg.tipo === 'estado') sincronizar(); });
+    $('carro').addEventListener('change', sincronizar);
+    setInterval(mostrar, 5000);
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) sincronizar(); });
+    sincronizar();
+  } else if (navigator.geolocation) {
     let ultimo = 0;
     navigator.geolocation.watchPosition(p => {
       $('gps').textContent = `GPS: ${p.coords.latitude.toFixed(5)}, ${p.coords.longitude.toFixed(5)} (±${Math.round(p.coords.accuracy)} m)`;

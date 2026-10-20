@@ -152,6 +152,12 @@ npx cap open android          → Build → Build APK
 
 Para instalar no celular, copie o `.apk` e permita "instalar apps desconhecidos". No app, o microfone usa o reconhecimento de voz do Google, e a voz usa o TTS do celular.
 
+**GPS do Pool Motorista em segundo plano.** No APK do motorista, a posição é enviada por um serviço do Android (código em `android/nativo/`, instalado pelo `preparar.js`), e não pela página. Ele continua com a tela desligada ou o app minimizado e deixa uma notificação fixa "Pool Motorista em operação".
+- Liga sozinho quando o carro está **assumido** neste celular e **em operação**; desliga em "Sair de operação".
+- Manda a posição a cada 10 s para `POST /api/motoristas/{carro}/gps` (também com o carro parado, para a central saber que o celular está vivo).
+- Em celulares que economizam bateria (Samsung, Xiaomi, Motorola), toque em "Não deixar o Android pausar o GPS" na tela do motorista.
+- O endereço que vem preenchido na primeira abertura é `https://central-corridas.onrender.com`; para outro, gere com `SERVIDOR=http://... node scripts/preparar.js` ou troque no app em "Servidor".
+
 ## 5. Testes
 
 ```

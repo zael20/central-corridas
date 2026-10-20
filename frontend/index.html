@@ -27,7 +27,7 @@
 <script>
   const ls = { get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }, set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} } };
   const srv = document.getElementById('srv'), res = document.getElementById('res');
-  srv.value = ls.get('servidor') || (location.protocol.startsWith('http') ? location.origin : 'http://');
+  srv.value = ls.get('servidor') || window.SERVIDOR_PADRAO || (location.protocol.startsWith('http') ? location.origin : 'http://');
   // app Android com tela fixa: ?app=motorista abre direto o app escolhido
   const fixo = new URLSearchParams(location.search).get('app') || window.APP_FIXO;
   if (fixo) document.querySelectorAll('[data-app]').forEach(a => { if (a.dataset.app !== fixo) a.hidden = true; });
