@@ -153,8 +153,9 @@
     }
     return plugins;
   };
-  // Voz: prefere as vozes neurais femininas (Edge: "Francisca/Thalita Online (Natural)"), depois a do Google e a Maria do Windows.
-  // A escolha e a velocidade ficam salvas neste aparelho (painel "Voz").
+  // Voz da central: uma só, fixa (Bella, gerada no servidor). Sem o servidor de voz, usa uma voz feminina do aparelho,
+  // preferindo as neurais (Edge: "Francisca/Thalita Online (Natural)"), depois a do Google e a Maria do Windows.
+  // Só a velocidade fica salva neste aparelho (painel "Voz").
   const PREFERIDAS = [/francisca.*natural/i, /thalita.*natural/i, /(brenda|elza|giovanna|leila|leticia|manuela|yara).*natural/i, /natural/i,
     /google portugu[eê]s do brasil/i, /luciana/i, /maria/i, /francisca/i];
   function vozesPt() {
@@ -162,9 +163,9 @@
   }
   const MASCULINAS = /daniel|antonio|ant[oô]nio|donato|fabio|f[aá]bio|julio|j[uú]lio|nicolau|valerio|val[eé]rio|humberto|francisco|ricardo|heitor|male|masculin/i;
   function vozEscolhida() {
-    const vs = vozesPt(), salva = ls.get('vozEscolha');
+    const vs = vozesPt();
     const femininas = vs.filter(v => !MASCULINAS.test(v.name));
-    return vs.find(v => v.name === salva) || PREFERIDAS.map(r => femininas.find(v => r.test(v.name))).find(Boolean) || femininas[0] || vs[0] || null;
+    return PREFERIDAS.map(r => femininas.find(v => r.test(v.name))).find(Boolean) || femininas[0] || vs[0] || null;
   }
   // as vozes do navegador carregam depois da página: espera um pouco para não cair na voz padrão (que pode ser masculina)
   const vozesProntas = () => new Promise(ok => {
@@ -196,7 +197,7 @@
     setTimeout(proximaFala, Math.random() * 200); // desencontra abas que recebem o mesmo aviso ao mesmo tempo
   }
 
-  // Voz do servidor (Kokoro): a mesma voz natural em todos os aparelhos. Sem ela, usa a voz do navegador/celular.
+  // Voz do servidor (Kokoro, Bella): a mesma voz natural em todos os aparelhos. Sem ela, usa a voz do navegador/celular.
   let infoSrv = null;
   async function vozServidor() {
     if (infoSrv && (infoSrv.disponivel || Date.now() - infoSrv.em < 15000)) return infoSrv;
@@ -211,8 +212,8 @@
     a.onerror = () => falha(new Error('áudio'));
     a.play().catch(falha);
   });
-  async function falarServidor(frases, id) {
-    const url = f => comToken(`${SERVIDOR}/api/voz?texto=${encodeURIComponent(f)}&voz_id=${encodeURIComponent(id)}&vel=${velVoz()}`);
+  async function falarServidor(frases) {
+    const url = f => comToken(`${SERVIDOR}/api/voz?texto=${encodeURIComponent(f)}&vel=${velVoz()}`);
     let prox = baixar(url(frases[0]));
     for (let i = 0; i < frases.length; i++) {
       const blob = await prox;
@@ -240,11 +241,10 @@
     const fim = () => { if (terminou) return; terminou = true; falando = false; canalVoz && canalVoz.postMessage({ tipo: 'fim' }); setTimeout(proximaFala, 300); };
     // uma frase por vez: pausa natural entre elas e nada é cortado
     const frases = (texto.match(/[^.!?]+[.!?]*/g) || [texto]).map(s => s.trim()).filter(Boolean);
-    const escolha = ls.get('vozEscolha') || '';
     try {
       const srv = await vozServidor();
-      if (srv.disponivel && (!escolha || escolha.startsWith('srv:'))) {
-        try { await falarServidor(frases, escolha.startsWith('srv:') ? escolha.slice(4) : srv.padrao); return fim(); }
+      if (srv.disponivel) {
+        try { await falarServidor(frases); return fim(); }
         catch (e) { console.warn('voz do servidor falhou, usando a do aparelho', e); }
       }
       const tts = plug().TextToSpeech;
@@ -254,27 +254,20 @@
       setTimeout(fim, 2000 + texto.length * 120); // garantia, se o navegador não avisar o fim
     } catch (e) { fim(); }
   }
-  // Painel de escolha da voz (vai dentro de um elemento qualquer)
+  // Painel da voz (vai dentro de um elemento qualquer): a voz é fixa; aqui só a velocidade e o teste
   function painelVoz(el) {
     const montar = async () => {
-      const srv = await vozServidor(), vs = vozesPt(), escolha = ls.get('vozEscolha') || '';
-      const atualNav = vozEscolhida();
-      const usandoSrv = srv.disponivel && (!escolha || escolha.startsWith('srv:'));
-      const opSrv = srv.disponivel ? srv.vozes.map(v => `<option value="srv:${v.id}" ${(escolha === 'srv:' + v.id || (!escolha && v.id === srv.padrao)) ? 'selected' : ''}>${esc(v.nome)} · voz da central</option>`).join('') : '';
-      const opNav = vs.map(v => `<option value="${esc(v.name)}" ${!usandoSrv && atualNav && v.name === atualNav.name ? 'selected' : ''}>${esc(v.name)} · deste aparelho</option>`).join('');
+      const srv = await vozServidor();
       el.innerHTML = `<div class="form">
-        <label>Voz<select class="pv-voz">${opSrv + opNav || '<option>Voz padrão do aparelho</option>'}</select></label>
         <label>Velocidade<input type="range" class="pv-vel" min="0.7" max="1.3" step="0.05" value="${velVoz()}"></label>
         <div class="acoes cheia"><button class="btn pv-testar" type="button">Testar voz</button></div></div>
-        <p class="aviso" style="margin:6px 0 0">${srv.disponivel ? 'A “voz da central” é gerada no servidor: todos os aparelhos ouvem a mesma voz, sem internet.'
-          : srv.carregando ? 'Carregando a voz da central no servidor…' : 'Voz da central indisponível no servidor; usando a voz deste aparelho.'}</p>`;
-      el.querySelector('.pv-voz').onchange = e => ls.set('vozEscolha', e.target.value);
+        <p class="aviso" style="margin:6px 0 0">${srv.disponivel ? `Voz da central: ${esc(srv.voz || 'Bella')}. Todos os aparelhos ouvem a mesma voz.`
+          : srv.carregando ? 'Carregando a voz da central no servidor…' : 'Voz da central indisponível neste servidor; usando a voz feminina deste aparelho.'}</p>`;
       el.querySelector('.pv-vel').onchange = e => ls.set('vozVel', e.target.value);
       el.querySelector('.pv-testar').onclick = () => falar('Olá! Aqui é a central de corridas. Sua viagem está confirmada, e o veículo chega em três minutos. Câmbio.', { forcar: true });
       if (srv.carregando) setTimeout(() => { infoSrv = null; montar(); }, 4000);
     };
     montar();
-    try { speechSynthesis.addEventListener('voiceschanged', montar); } catch (e) {}
   }
   // Microfone estilo rádio: fica aberto até a pessoa mandar parar (pausas para pensar não fecham).
   // O reconhecimento do navegador/celular desliga sozinho no silêncio; aqui ele é religado na hora e o texto vai somando.

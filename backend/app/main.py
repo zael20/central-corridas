@@ -581,11 +581,11 @@ def voz_info():
 
 
 @app.get('/api/voz')
-def voz_falar(texto: str, voz_id: str = 'pf_dora', vel: float = 1.0):
+def voz_falar(texto: str, vel: float = 1.0):  # voz única da central (app/voz.py); voz_id de telas antigas é ignorado
     if not texto.strip():
         raise HTTPException(400, 'Texto vazio.')
     try:
-        wav = voz.gerar(texto, voz_id, vel)
+        wav = voz.gerar(texto, vel)
     except Exception as e:
         raise HTTPException(503, f'Voz indisponível: {e}')
     return Response(wav, media_type='audio/wav', headers={'Cache-Control': 'max-age=86400'})
