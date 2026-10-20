@@ -164,10 +164,10 @@ async def exigir_codigo(request, chamar):
     if p.startswith('/api/') and p not in LIVRE and request.method != 'OPTIONS':
         papel = acesso.papel(token_de(request))
         if not papel:
-            return JSONResponse({'detail': 'Digite o código de acesso.', 'precisa': 'codigo'}, status_code=401)
+            return JSONResponse({'detail': 'Entre com a sua matrícula.', 'precisa': 'codigo'}, status_code=401)
         pode = {'passageiro': PASSAGEIRO_PODE, 'motorista': MOTORISTA_PODE}.get(papel)
         if pode is not None and not any(request.method == m and rx.match(p) for m, rx in pode):
-            return JSONResponse({'detail': 'Esta parte é só da central. Digite o código da operação.', 'precisa': 'operacao'}, status_code=403)
+            return JSONResponse({'detail': 'Esta parte é só da central: entre com uma matrícula de adm.', 'precisa': 'operacao'}, status_code=403)
     return await chamar(request)
 
 
@@ -176,15 +176,15 @@ app.add_middleware(CORSMiddleware, allow_origins=['*'], allow_methods=['*'], all
 
 
 class Entrada(BaseModel):
-    codigo: str
-    matricula: str = ''  # acesso por pessoa: matrícula + código
+    codigo: str = ''      # códigos gerais (antigos)
+    matricula: str = ''  # acesso por pessoa: só a matrícula cadastrada na aba Acessos
 
 
 @app.post('/api/entrar')
 def entrar(e: Entrada):
     papel, token = acesso.entrar(e.codigo, e.matricula)
     if not papel:
-        raise HTTPException(401, 'Matrícula ou código incorreto.' if e.matricula.strip() else 'Código incorreto.')
+        raise HTTPException(401, 'Matrícula não cadastrada. Peça à central para cadastrar.' if e.matricula.strip() else 'Informe a matrícula.')
     u = acesso.quem(token) or {}
     return {'papel': papel, 'token': token, 'matricula': u.get('matricula', ''), 'nome': u.get('nome', ''), 'perfil': u.get('perfil', '')}
 
@@ -198,13 +198,12 @@ def ver_usuarios():
 class Usuario(BaseModel):
     nome: str = ''
     perfil: str
-    codigo: str = ''
 
 
 @app.post('/api/usuarios/{mat}')
 def salvar_usuario(mat: str, u: Usuario):
     try:
-        r = acesso.salvar_usuario(mat, u.nome, u.perfil, u.codigo)
+        r = acesso.salvar_usuario(mat, u.nome, u.perfil)
     except ValueError as e:
         raise HTTPException(400, str(e))
     estado.pessoas.registrar(r['nome'], r['matricula'], 'central')

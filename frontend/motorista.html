@@ -116,8 +116,8 @@
   let meu = ls.get('meuCarro'), vistos = new Set(), checVistas = new Set(), ofertasVistas = new Set(), primeiro = true, trocando = false, offset = 0;
   App.painelVoz($('voz-cfg'));
   por('m-srv', esc(App.SERVIDOR));
-  por('m-acesso', ls.get('matricula') && ls.get('perfil') ? `Entrou como ${esc(ls.get('nome') || '')} (mat. ${esc(ls.get('matricula'))}, ${esc(ls.get('perfil'))}).` : 'Entrou com o código da operação.');
-  $('m-sair').onclick = () => { if (confirm('Sair deste acesso? Vai pedir matrícula e código de novo.')) App.sair(); };
+  por('m-acesso', ls.get('matricula') && ls.get('perfil') ? `Entrou como ${esc(ls.get('nome') || '')} (mat. ${esc(ls.get('matricula'))}, ${esc(ls.get('perfil'))}).` : 'Entrou pelo acesso antigo da operação.');
+  $('m-sair').onclick = () => { if (confirm('Sair deste acesso? Vai pedir a matrícula de novo.')) App.sair(); };
   await App.iniciar($('con'), { papel: 'motorista' });
 
   const enviar = async (caminho, dados) => { try { return await api(caminho, dados || {}); } catch (e) { App.toast(e.message); throw e; } };

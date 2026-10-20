@@ -152,7 +152,7 @@ npx cap open android          → Build → Build APK
 
 Para instalar no celular, copie o `.apk` e permita "instalar apps desconhecidos". No app, o microfone usa o reconhecimento de voz do Google, e a voz usa o TTS do celular.
 
-**Acessos por pessoa (aba Acessos da central).** Cada pessoa entra com matrícula + código, com perfil Adm (central e cadastro), Motorista (app do motorista) ou Passageiro. A matrícula `ADM_MATRICULA` (padrão 8015) é sempre adm; o código dela é `ADM_CODIGO` ou, sem essa variável, o código da operação. Os códigos gerais (passageiro e operação) continuam valendo. No Render grátis o disco é apagado ao reiniciar: os acessos cadastrados somem e só o adm principal volta sozinho.
+**Acessos por pessoa (aba Acessos da central).** Cada pessoa entra só com a matrícula (sem código), e só entra quem está cadastrado na aba, com perfil Adm (central e cadastro), Motorista (app do motorista) ou Passageiro. A matrícula `ADM_MATRICULA` (padrão 8015) é sempre adm. Os códigos gerais antigos ainda são aceitos pelo servidor, mas não aparecem mais nas telas. No Render grátis o disco é apagado ao reiniciar: os acessos cadastrados somem e só o adm principal volta sozinho.
 
 **Tela do motorista.** Mapa na tela inteira, barra com o motorista do turno (matrícula; o nome vem do cadastro), painel de baixo que recolhe para ver só o mapa, pop-up para aceitar/recusar corrida e cartão da próxima corrida prevista.
 

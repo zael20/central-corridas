@@ -24,8 +24,7 @@
   // nível que a tela exige: 'operacao' (central), 'motorista' (app do motorista: adm ou motorista), 'codigo' (passageiro)
   const PAPEIS_OK = { operacao: ['operacao'], motorista: ['operacao', 'motorista'], codigo: ['operacao', 'motorista', 'passageiro'] };
   const TITULO = { operacao: 'Acesso da central', motorista: 'Acesso do motorista', codigo: 'Acesso' };
-  const DICA = { operacao: 'Matrícula e código de administrador (ou o código da operação).', motorista: 'Sua matrícula e o código que a central cadastrou para você.',
-    codigo: 'Sua matrícula e o código, ou só o código que a central passou.' };
+  const DICA = { operacao: 'Matrícula de administrador.', motorista: 'Sua matrícula (cadastrada pela central).', codigo: 'Sua matrícula (cadastrada pela central).' };
   function pedirCodigo(precisa, aviso) {
     const nivel = nivelTela || (precisa === 'operacao' ? 'operacao' : 'codigo');
     if (pedindo) return;
@@ -33,25 +32,24 @@
     const d = document.createElement('div');
     d.className = 'codigo-fundo';
     d.innerHTML = `<form class="painel codigo-caixa"><h2>${TITULO[nivel]}</h2>
-      <p class="aviso">${esc(aviso && !/^Digite o código/.test(aviso) ? aviso : DICA[nivel])}</p>
+      <p class="aviso">${esc(aviso && !/^Entre com a sua matrícula/.test(aviso) ? aviso : DICA[nivel])}</p>
       <label>Matrícula<input type="text" inputmode="numeric" autocomplete="username" class="mat-in" value="${esc(ls.get('matricula') || '')}"></label>
-      <label>Código<input type="password" inputmode="numeric" autocomplete="current-password" class="cod-in" aria-label="Código"></label>
       <p class="falta cod-erro" hidden></p><div class="acoes"><button class="btn principal" type="submit">Entrar</button></div></form>`;
     document.body.appendChild(d);
-    const mat = d.querySelector('.mat-in'), inp = d.querySelector('.cod-in');
-    (mat.value ? inp : mat).focus();
+    const mat = d.querySelector('.mat-in');
+    mat.focus();
     d.querySelector('form').onsubmit = async ev => {
       ev.preventDefault();
       const erro = d.querySelector('.cod-erro'); erro.hidden = true;
       try {
-        const r = await fetch(SERVIDOR + '/api/entrar', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ codigo: inp.value, matricula: mat.value }) });
+        const r = await fetch(SERVIDOR + '/api/entrar', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ matricula: mat.value }) });
         const j = await r.json().catch(() => ({}));
-        if (!r.ok) throw new Error(j.detail || 'Código incorreto.');
+        if (!r.ok) throw new Error(j.detail || 'Matrícula não cadastrada.');
         if (!PAPEIS_OK[nivel].includes(j.papel)) throw new Error(nivel === 'operacao' ? 'Este acesso não é de administrador.' : 'Este acesso é de passageiro. Peça à central um acesso de motorista.');
         ls.set('acesso', j.token); ls.set('papel', j.papel);
         if (j.matricula) { ls.set('matricula', j.matricula); ls.set('nome', j.nome || ''); ls.set('perfil', j.perfil || ''); }
         location.reload();
-      } catch (e) { erro.hidden = false; erro.textContent = e.message; inp.select(); }
+      } catch (e) { erro.hidden = false; erro.textContent = e.message; mat.select(); }
     };
   }
   const sair = () => { ['acesso', 'papel', 'perfil'].forEach(k => ls.set(k, '')); location.reload(); };
