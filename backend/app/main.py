@@ -11,7 +11,7 @@ import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -27,6 +27,7 @@ from .locais import LOCAIS
 from .mapa import Mapa
 from .voz import Voz
 from .acesso import Acesso
+from . import integracao
 
 BASE = Path(__file__).resolve().parent.parent
 FRONT = Path(os.environ.get('FRONTEND_DIR', BASE.parent / 'frontend'))
@@ -628,6 +629,27 @@ def exportar():
                      'origem': nome_local(l['origem']), 'destino': nome_local(l['destino'])}[c] for c in cols])
     return StreamingResponse(iter(['﻿' + buf.getvalue()]), media_type='text/csv; charset=utf-8',
                              headers={'Content-Disposition': 'attachment; filename=corridas.csv'})
+
+
+# ---------- integração com o Microsoft 365 (Power Automate lê o feed e grava no SharePoint) ----------
+def _chave_integracao(chave):
+    certa = os.environ.get('INTEGRACAO_CHAVE', '')
+    if not certa or chave != certa:
+        raise HTTPException(404)
+
+
+@app.get('/api/integracao/corridas.json')
+def integracao_json(chave: str = ''):
+    _chave_integracao(chave)
+    lista = integracao.viagens(despacho.indicadores(estado.est(), agora()), estado.dados['motoristas'])
+    return [{k: v for k, v in x.items() if k != '_fim'} for x in lista]
+
+
+@app.get('/api/integracao/corridas.rss')
+def integracao_rss(request: Request, chave: str = ''):
+    _chave_integracao(chave)
+    lista = integracao.viagens(despacho.indicadores(estado.est(), agora()), estado.dados['motoristas'])
+    return Response(integracao.rss(lista, str(request.base_url)), media_type='application/rss+xml; charset=utf-8')
 
 
 @app.get('/api/conversas.csv')
