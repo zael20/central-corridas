@@ -23,5 +23,7 @@ services:
         sync: false
       - key: CODIGO_OPERACAO   # código da central e dos motoristas
         sync: false
+      - key: INTEGRACAO_CHAVE  # senha do feed de viagens que o Power Automate lê (copie o valor no painel do Render)
+        generateValue: true
       - key: ACESSO_SEGREDO
         generateValue: true
