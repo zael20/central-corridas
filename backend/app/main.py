@@ -74,6 +74,9 @@ aprendido = Aprendizado(DADOS / 'aprendido.json')
 voz = Voz()
 acesso = Acesso(DADOS / 'acesso.json')
 central = Central(estado, cfg, avisar, aprendido)
+# tempo real para o Microsoft 365: URL do gatilho de webhook do Power Automate (vazio = desligado)
+envio = integracao.Envio((os.environ.get('MS_WEBHOOK_URL') or '').strip(), estado, agora)
+estado.observadores.append(envio.observar)
 
 
 def visao():
@@ -388,7 +391,7 @@ def ver_indicadores():
 
 @app.get('/api/saude')
 def saude():
-    return {'ok': True, 'agora': agora(), 'configErro': cfg.erro, 'ia': bool((cfg['ia'] or {}).get('usar_llm') and os.environ.get('ANTHROPIC_API_KEY'))}
+    return {'ok': True, 'agora': agora(), 'configErro': cfg.erro, 'microsoft365': envio.situacao(), 'ia': bool((cfg['ia'] or {}).get('usar_llm') and os.environ.get('ANTHROPIC_API_KEY'))}
 
 
 # ---------- assistente (rádio e app) ----------

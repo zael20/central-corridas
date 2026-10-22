@@ -33,6 +33,7 @@ class Estado:
             n INTEGER PRIMARY KEY AUTOINCREMENT, em INTEGER, tipo TEXT, corrida TEXT, carro TEXT, texto TEXT)''')
         self.db.commit()
         self.pessoas = Pessoas(self.db, self.lock)
+        self.observadores = []  # funções chamadas com as ops depois de cada alteração (ex.: envio ao Microsoft 365)
         self.dados = {c: {} for c in COLECOES}
         for col, id_, dados in self.db.execute('SELECT col, id, dados FROM docs'):
             if col in self.dados:
@@ -60,6 +61,8 @@ class Estado:
                 self.dados[col][id_] = doc
                 self.db.execute('INSERT OR REPLACE INTO docs VALUES (?,?,?)', (col, id_, json.dumps(doc, ensure_ascii=False)))
             self.db.commit()
+            for f in self.observadores:
+                f(ops)
         return ops
 
     def evento(self, tipo, texto, corrida=None, carro=None):

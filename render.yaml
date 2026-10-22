@@ -25,5 +25,7 @@ services:
         sync: false
       - key: INTEGRACAO_CHAVE  # senha do feed de viagens que o Power Automate lê (copie o valor no painel do Render)
         generateValue: true
+      - key: MS_WEBHOOK_URL    # endereço do gatilho "webhook do Teams" do Power Automate: viagens em tempo real no SharePoint
+        sync: false
       - key: ACESSO_SEGREDO
         generateValue: true
