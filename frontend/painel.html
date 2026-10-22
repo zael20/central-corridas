@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="pt-BR" data-theme="dark"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Painel da Central</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<link rel="stylesheet" href="estilo.css">
+<style>
+  /* Painel para TV: atualiza sozinho (tempo real), letras grandes, sem rolagem na tela cheia */
+  html, body { height: 100%; }
+  body { overflow-x: hidden; }
+  .tv { padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 12px 16px;
+    display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto; gap: 12px; min-height: 100%; max-width: none; }
+  .tv-topo { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; flex-wrap: wrap; }
+  .tv-topo h1 { font-size: clamp(22px, 2.4vw, 34px); }
+  .relogio { font: 600 clamp(22px, 2.4vw, 34px) var(--f-mono); font-variant-numeric: tabular-nums; }
+  .numeros { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+  .num { background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 10px 14px; }
+  .num small { display: block; color: var(--muted); font-size: clamp(12px, 1vw, 15px); text-transform: uppercase; letter-spacing: .06em; }
+  .num b { display: block; font: 700 clamp(28px, 3vw, 48px)/1.1 var(--f-display); font-variant-numeric: tabular-nums; }
+  .num i { font-style: normal; color: var(--muted); font-size: 13px; }
+  .num.alerta b { color: var(--bad); }
+  .meio { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: 12px; min-height: 0; }
+  .meio .mapa-sat { height: 100%; min-height: 360px; }
+  .lado { display: flex; flex-direction: column; gap: 12px; min-height: 0; }
+  .lado .painel { overflow: hidden; display: flex; flex-direction: column; min-height: 0; }
+  .lado .painel.chamadas { flex: 1; }
+  .linha { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 2px 10px; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--line); font-size: clamp(14px, 1.1vw, 18px); }
+  .linha:last-child { border-bottom: 0; }
+  .linha .eta { font: 700 clamp(18px, 1.6vw, 26px) var(--f-mono); font-variant-numeric: tabular-nums; text-align: right; }
+  .linha .sub { grid-column: 2 / 4; color: var(--muted); font-size: clamp(12px, .95vw, 15px); }
+  .rodape { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: 12px; }
+  svg.horas { width: 100%; height: auto; display: block; }
+  .horas text { fill: var(--muted); font: 11px var(--f-mono); }
+  .horas .barra { fill: var(--accent); }
+  .horas .agora { fill: var(--info); }
+  .carros { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+  .carro { border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; font-size: 14px; }
+  .carro b { font: 700 18px var(--f-display); }
+  .carro.parado { border-color: var(--bad); }
+  @media (max-width: 900px) { .meio, .rodape { grid-template-columns: minmax(0, 1fr); } }
+</style>
+</head><body>
+<main class="tv">
+  <div class="tv-topo"><h1>Central de <span>Corridas</span> · ao vivo</h1>
+    <div class="acoes"><span class="modo" id="con"><i></i> Conectando…</span><span class="relogio" id="relogio">--:--</span></div></div>
+  <div class="numeros" id="numeros"></div>
+  <div class="meio">
+    <div class="painel" style="padding:8px"><div class="mapa-sat" id="mapa"></div></div>
+    <div class="lado">
+      <div class="painel chamadas"><h2>Chamadas abertas</h2><div id="abertas" style="overflow:auto"></div></div>
+      <div class="painel"><h2>Alertas</h2><div id="alertas"></div></div>
+    </div>
+  </div>
+  <div class="rodape">
+    <div class="painel"><h2>Pedidos por hora · hoje</h2><svg class="horas" id="horas" viewBox="0 0 720 150" role="img" aria-label="Pedidos por hora hoje"></svg></div>
+    <div class="painel"><h2>Carros</h2><div class="carros" id="carros"></div></div>
+  </div>
+</main>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="fixo.js"></script>
+<script src="comum.js"></script>
+<script>
+(async function () {
+  const { $, esc, por, pill, hora, MIN } = App;
+  const fmtDia = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Belem' }); // AAAA-MM-DD no fuso da mina
+  const fmtHora = new Intl.DateTimeFormat('pt-BR', { hour: '2-digit', timeZone: 'America/Belem', hour12: false });
+  const relogio = () => { $('relogio').textContent = hora(Date.now()); };
+  relogio(); setInterval(relogio, 10000);
+  // a TV não pode apagar a tela
+  try { navigator.wakeLock && navigator.wakeLock.request('screen').catch(() => {}); document.addEventListener('visibilitychange', () => { if (!document.hidden && navigator.wakeLock) navigator.wakeLock.request('screen').catch(() => {}); }); } catch (e) {}
+  await App.iniciar($('con'), { papel: 'tv' });
+
+  const ABERTAS = ['agendada', 'sem_carro', 'oferecida', 'na_fila', 'a_caminho', 'no_local', 'em_viagem'];
+  const f1 = v => v == null ? '—' : (Math.round(v * 10) / 10).toString().replace('.', ',');
+  function render() {
+    const est = App.estado; if (!est) return;
+    const t = est.agora, hoje = fmtDia.format(t);
+    const doDia = est.corridas.filter(c => fmtDia.format(c.criadoEm) === hoje);
+    const esperas = doDia.filter(c => c.chegouOrigemEm).map(c => (c.chegouOrigemEm - c.criadoEm) / MIN).sort((a, b) => a - b);
+    const media = esperas.length ? esperas.reduce((s, v) => s + v, 0) / esperas.length : null;
+    const p90 = esperas.length ? esperas[Math.min(esperas.length - 1, Math.floor(0.9 * esperas.length))] : null;
+    const andamento = est.corridas.filter(c => ['a_caminho', 'no_local', 'em_viagem'].includes(c.status)).length;
+    const semCarro = est.corridas.filter(c => ['sem_carro', 'oferecida', 'na_fila'].includes(c.status)).length;
+    const ativos = est.motoristas.filter(m => m.ativo), ocupados = ativos.filter(m => m.atual).length;
+    const alertas = est.checagens.filter(k => !k.respondidaEm && !k.encerrada || k.semResposta && t - k.criadoEm < 30 * MIN);
+    por('numeros', [
+      ['Pedidos hoje', doDia.length, ''], ['Em andamento', andamento, ''], ['Esperando carro', semCarro, '', semCarro > 0],
+      ['Espera média hoje', f1(media), 'min'], ['Espera p90 hoje', f1(p90), 'min'], ['Concluídas hoje', doDia.filter(c => c.status === 'concluida').length, ''],
+      ['Carros ocupados', `${ocupados}/${ativos.length}`, ''], ['Compartilhadas hoje', doDia.filter(c => c.compartilhada).length, ''],
+      ['Ocorrências hoje', doDia.filter(c => c.temOcorrencia).length, '', doDia.some(c => c.temOcorrencia)], ['Alertas abertos', alertas.length, '', alertas.length > 0],
+    ].map(([n, v, u, ruim]) => `<div class="num${ruim ? ' alerta' : ''}"><small>${n}</small><b>${v}${u ? ' <i>' + u + '</i>' : ''}</b></div>`).join(''));
+
+    const ordem = { sem_carro: 0, oferecida: 1, na_fila: 2, agendada: 3, a_caminho: 4, no_local: 5, em_viagem: 6 };
+    const abertas = est.corridas.filter(c => ABERTAS.includes(c.status)).sort((a, b) => ordem[a.status] - ordem[b.status] || a.criadoEm - b.criadoEm);
+    por('abertas', abertas.length ? abertas.map(c => {
+      const eta = c.status === 'em_viagem' ? c.etaDestino : c.etaAgora, min = eta ? Math.max(0, Math.round((eta - t) / MIN)) : null;
+      return `<div class="linha">${pill(c.status)}<span><b>${esc(c.solicitante || 'Solicitante')}</b> · ${esc(App.nomeLocal(c.origem))} → ${esc(App.nomeLocal(c.destino))}</span>
+        <span class="eta">${min == null ? '' : min + ' min'}</span>
+        <span class="sub">${c.carro ? 'Veículo ' + esc(c.carro) : 'sem carro'} · ${c.passageiros} pass. · pedido às ${hora(c.criadoEm)}${c.compartilhada ? ' · compartilhada' : ''}${c.urgente ? ' · <b>URGENTE</b>' : ''}${c.status === 'em_viagem' ? ' · chega ao destino' : c.status === 'a_caminho' ? ' · carro a caminho' : ''}</span></div>`;
+    }).join('') : '<p class="vazio">Nenhuma chamada aberta.</p>');
+
+    const MOT = { parado: 'carro parado', atraso: 'atrasado', embarque: 'passageiro diz que não embarcou', encontro: 'passageiro não acha o carro', central: 'pergunta da central' };
+    por('alertas', alertas.length ? alertas.map(k => `<div class="linha"><span class="id">${hora(k.criadoEm)}</span><span>Veículo <b>${esc(k.carro)}</b>: ${esc(MOT[k.motivo] || k.motivo)}</span>
+      ${k.semResposta ? pill('sem_carro', 'sem resposta') : pill('oferecida', 'aguardando')}</div>`).join('') : '<p class="vazio">Nenhum alerta.</p>');
+
+    por('carros', est.motoristas.map(m => {
+      const parado = m.atual && m.paradoMin >= 4;
+      const st = !m.ativo ? 'fora de operação' : m.modo === 'pane' ? 'pane' : (m.ativas || []).length > 1 ? `${m.ativas.length} corridas (compartilhada)` : m.atual ? 'em corrida' : 'livre';
+      return `<div class="carro${parado || m.modo === 'pane' ? ' parado' : ''}"><b style="color:${App.corDe(m.id)}">${esc(m.id)}</b> ${esc(m.nome || '')}<div>${esc(st)}</div><div class="aviso" style="margin:0">perto de ${esc(m.onde)}${parado ? ` · parado ${Math.round(m.paradoMin)} min` : ''}</div></div>`;
+    }).join(''));
+
+    // pedidos por hora (hoje), barras na mesma escala
+    const cont = Array.from({ length: 24 }, () => 0);
+    for (const c of doDia) cont[Number(fmtHora.format(c.criadoEm)) % 24]++;
+    const max = Math.max(1, ...cont), agoraH = Number(fmtHora.format(t)) % 24, bw = 28, x0 = 12, base = 120;
+    por($('horas'), cont.map((n, h) => {
+      const alt = n / max * 96, x = x0 + h * (bw + 1.5);
+      return `<rect class="${h === agoraH ? 'agora' : 'barra'}" x="${x}" y="${base - alt}" width="${bw}" height="${alt}" rx="2"></rect>`
+        + (n ? `<text x="${x + bw / 2}" y="${base - alt - 4}" text-anchor="middle">${n}</text>` : '')
+        + (h % 3 === 0 ? `<text x="${x + bw / 2}" y="${base + 16}" text-anchor="middle">${String(h).padStart(2, '0')}h</text>` : '');
+    }).join('') + `<line x1="${x0}" x2="${x0 + 24 * (bw + 1.5)}" y1="${base}" y2="${base}" stroke="var(--line)"></line>`);
+
+    App.mapa($('mapa'), { rotulos: false });
+  }
+  App.ouvintes.push(msg => { if (msg.tipo === 'estado' || msg.tipo === 'locais_ok') render(); });
+  setInterval(render, 15000); // relógio dos minutos mesmo sem novidade
+})();
+</script>
+</body></html>

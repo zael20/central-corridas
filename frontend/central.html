@@ -70,6 +70,9 @@
         <div class="form">
           <label>Código de passageiro<input type="text" id="a-pass" autocomplete="off"></label>
           <label>Código da operação<input type="text" id="a-op" autocomplete="off"></label>
+          <label>Código do painel (TV)<input type="text" id="a-tv" autocomplete="off"></label>
+          <div class="cheia"><p class="aviso" style="margin:0">Link do painel para deixar aberto na TV (entra sozinho, sem digitar código):</p>
+            <div class="acoes"><input type="text" id="a-link" readonly style="flex:1"><button class="btn" id="a-copiar" type="button">Copiar</button><a class="btn" id="a-abrir" target="_blank">Abrir painel</a></div></div>
           <div class="acoes cheia"><button class="btn" id="a-salvar" type="button">Trocar códigos</button></div>
         </div>
       </div>
@@ -278,10 +281,12 @@
     try { const r = await api('/api/locais/importar', { pontos: j }); App.toast(`${r.importados} pontos importados (${r.marcados} marcados no total).`); $('l-json').value = ''; }
     catch (e) { App.toast(e.message); }
   };
-  api('/api/acesso').then(a => { $('a-pass').value = a.passageiro; $('a-op').value = a.operacao; }).catch(() => {});
+  api('/api/acesso').then(a => { $('a-pass').value = a.passageiro; $('a-op').value = a.operacao; $('a-tv').value = a.tv;
+    $('a-link').value = $('a-abrir').href = SERVIDOR + '/painel.html?codigo=' + encodeURIComponent(a.tv); }).catch(() => {});
+  $('a-copiar').onclick = () => { const i = $('a-link'); try { navigator.clipboard.writeText(i.value).then(() => App.toast('Link copiado.')); } catch (e) { i.select(); } };
   $('a-salvar').onclick = async () => {
     if (!confirm('Trocar os códigos? Todo mundo vai precisar digitar o código novo.')) return;
-    try { await api('/api/acesso', { passageiro: $('a-pass').value.trim(), operacao: $('a-op').value.trim() }); App.toast('Códigos trocados.'); App.ls.set('acesso', ''); location.reload(); }
+    try { await api('/api/acesso', { passageiro: $('a-pass').value.trim(), operacao: $('a-op').value.trim(), tv: $('a-tv').value.trim() }); App.toast('Códigos trocados.'); App.ls.set('acesso', ''); location.reload(); }
     catch (e) { App.toast(e.message); }
   };
   $('l-salvar').onclick = async () => {

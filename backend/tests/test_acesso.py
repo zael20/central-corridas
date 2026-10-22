@@ -38,6 +38,10 @@ def test_codigos():
         tr = c.get('/api/tempo-real?cliente=cli-a', headers=hp).json()  # plano B sem WebSocket
         assert [x['matricula'] for x in tr['estado']['corridas']] == ['3321'] and 'agora' in tr
         assert len(c.get('/api/tempo-real', headers=ho).json()['estado']['corridas']) == 2
+        tt = c.post('/api/entrar', json={'codigo': cod['tv']}).json()  # painel da TV
+        assert tt['papel'] == 'tv' and c.get('/api/estado', headers={'X-Acesso': tt['token']}).status_code == 403
+        tv = c.get('/api/tempo-real', headers={'X-Acesso': tt['token']}).json()['estado']
+        assert len(tv['corridas']) == 2 and all('matricula' not in x for x in tv['corridas']) and tv['eventos'] == []
         with c.websocket_connect(f"/ws?t={to['token']}") as w:
             assert len(w.receive_json()['estado']['corridas']) == 2
 

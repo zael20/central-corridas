@@ -93,9 +93,24 @@ def para_passageiro(est, info):
             'checagens': [], 'eventos': [], 'configErro': None, 'rotasPelaEstrada': est.get('rotasPelaEstrada')}
 
 
+def para_tv(est):
+    """Painel da TV: tudo da operação, mas sem matrícula e só com o primeiro nome de quem pediu."""
+    tira = ('decisao', 'matricula', 'textoFalado', 'interpretacao', 'criadoPor', 'embarcouDeFato', 'ocorrencia')
+    corridas = [{k: v for k, v in r.items() if k not in tira} | {'solicitante': (r.get('solicitante') or '').split(' ')[0],
+                                                                'temOcorrencia': bool(r.get('ocorrencia'))} for r in est['corridas']]
+    checagens = [{k: c.get(k) for k in ('id', 'carro', 'motivo', 'criadoEm', 'respondidaEm', 'semResposta', 'encerrada')} for c in est['checagens']]
+    return {**est, 'corridas': corridas, 'checagens': checagens, 'eventos': []}
+
+
+def estado_para(est, info):
+    return est if info['papel'] == 'operacao' else para_tv(est) if info['papel'] == 'tv' else para_passageiro(est, info)
+
+
 def serve_para(msg, info):
     if info['papel'] == 'operacao':
         return True
+    if info['papel'] == 'tv':
+        return msg.get('tipo') == 'locais'
     if msg.get('tipo') == 'fala':
         return bool((info['cliente'] and msg.get('clienteId') == info['cliente']) or (info['mat'] and msg.get('matricula') == info['mat']))
     return msg.get('tipo') in ('locais',)
@@ -106,7 +121,7 @@ async def enviar_todos(msg):
     for ws_, info in list(conexoes.items()):
         try:
             if est is not None:
-                await ws_.send_json({'tipo': 'estado', 'estado': est if info['papel'] == 'operacao' else para_passageiro(est, info)})
+                await ws_.send_json({'tipo': 'estado', 'estado': estado_para(est, info)})
             elif serve_para(msg, info):
                 await ws_.send_json(msg)
         except Exception:
@@ -155,6 +170,7 @@ app = FastAPI(title='Central de Corridas Internas', lifespan=vida, docs_url=None
 
 # ---------- acesso (códigos) ----------
 LIVRE = {'/api/entrar', '/api/saude'}
+TV_PODE = re.compile(r'^/api/(locais|mapa/config|tempo-real)$')
 PASSAGEIRO_PODE = [('GET', re.compile(r'^/api/(locais|mapa/config|voz(/info)?|tempo-real)$')),
                    ('POST', re.compile(r'^/api/(assistente|corridas|corridas/[^/]+/cancelar)$'))]
 
@@ -172,6 +188,8 @@ async def exigir_codigo(request, chamar):
             return JSONResponse({'detail': 'Digite o código de acesso.', 'precisa': 'codigo'}, status_code=401)
         if papel == 'passageiro' and not any(request.method == m and rx.match(p) for m, rx in PASSAGEIRO_PODE):
             return JSONResponse({'detail': 'Esta parte é só da central. Digite o código da operação.', 'precisa': 'operacao'}, status_code=403)
+        if papel == 'tv' and not (request.method == 'GET' and TV_PODE.match(p)):
+            return JSONResponse({'detail': 'O código do painel só serve para o painel. Digite o código da operação.', 'precisa': 'operacao'}, status_code=403)
     return await chamar(request)
 
 
@@ -184,7 +202,7 @@ def tempo_real(request: Request, desde: int = 0, cliente: str = '', mat: str = '
     """Plano B do tempo real (hospedagem que limita WebSocket): estado + avisos desde `desde`, filtrados pelo papel."""
     info = {'papel': acesso.papel(token_de(request)) or 'passageiro', 'cliente': cliente, 'mat': ''.join(ch for ch in mat if ch.isdigit())}
     est = visao()
-    return {'estado': est if info['papel'] == 'operacao' else para_passageiro(est, info),
+    return {'estado': estado_para(est, info),
             'msgs': [m for m in recentes if m['em'] > desde and serve_para(m, info)], 'agora': agora()}
 
 
@@ -208,12 +226,13 @@ def ver_acesso():
 class TrocaCodigos(BaseModel):
     passageiro: str | None = None
     operacao: str | None = None
+    tv: str | None = None
 
 
 @app.post('/api/acesso')
 def trocar_acesso(tc: TrocaCodigos):
     try:
-        acesso.trocar(tc.passageiro, tc.operacao)
+        acesso.trocar(tc.passageiro, tc.operacao, tc.tv)
     except ValueError as e:
         raise HTTPException(400, str(e))
     estado.evento('acesso', 'Códigos de acesso trocados')
@@ -614,7 +633,7 @@ async def ws(sock: WebSocket):
     conexoes[sock] = info
     try:
         est = visao()
-        await sock.send_json({'tipo': 'estado', 'estado': est if papel == 'operacao' else para_passageiro(est, info)})
+        await sock.send_json({'tipo': 'estado', 'estado': estado_para(est, info)})
         while True:
             await sock.receive_text()  # o cliente só manda "ping"
     except WebSocketDisconnect:

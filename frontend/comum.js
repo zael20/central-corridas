@@ -100,6 +100,15 @@
   }
   async function iniciar(statusEl, { papel } = {}) {
     if (!SERVIDOR) { location.href = 'index.html'; return; }
+    // link com o código (ex.: painel na TV: painel.html?codigo=123456): entra sozinho e tira o código do endereço
+    const q = new URLSearchParams(location.search);
+    if (q.get('codigo')) {
+      try {
+        const r = await fetch(SERVIDOR + '/api/entrar', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ codigo: q.get('codigo') }) });
+        if (r.ok) { const j = await r.json(); ls.set('acesso', j.token); ls.set('papel', j.papel); }
+      } catch (e) {}
+      q.delete('codigo'); history.replaceState(null, '', location.pathname + (q.toString() ? '?' + q : ''));
+    }
     if (papel === 'operacao' && ls.get('papel') !== 'operacao') {
       // sem código ainda (ou com o de passageiro): o servidor diz se a proteção está ligada
       const r = await fetch(SERVIDOR + '/api/estado', { headers: { 'X-Acesso': token() } }).catch(() => null);
