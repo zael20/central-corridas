@@ -4,6 +4,7 @@ Rodar (na pasta backend):  uvicorn app.main:app --host 0.0.0.0 --port 8000
 Aplicativos: http://<ip-do-servidor>:8000/  (Passageiro, Motorista e Central)
 """
 import asyncio
+import collections
 import re
 import csv
 import io
@@ -11,7 +12,7 @@ import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -112,9 +113,15 @@ async def enviar_todos(msg):
             conexoes.pop(ws_, None)
 
 
+# avisos recentes (falas, alertas, perguntas ao motorista), para quem acompanha sem tempo real (consulta a cada poucos segundos)
+recentes = collections.deque(maxlen=200)
+
+
 async def laco_avisos():
     while True:
         msg = await fila_avisos.get()
+        if msg.get('tipo') != 'estado':
+            recentes.append({**msg, 'em': agora()})
         await enviar_todos(msg)
 
 
@@ -148,7 +155,7 @@ app = FastAPI(title='Central de Corridas Internas', lifespan=vida, docs_url=None
 
 # ---------- acesso (códigos) ----------
 LIVRE = {'/api/entrar', '/api/saude'}
-PASSAGEIRO_PODE = [('GET', re.compile(r'^/api/(locais|mapa/config|voz(/info)?)$')),
+PASSAGEIRO_PODE = [('GET', re.compile(r'^/api/(locais|mapa/config|voz(/info)?|tempo-real)$')),
                    ('POST', re.compile(r'^/api/(assistente|corridas|corridas/[^/]+/cancelar)$'))]
 
 
@@ -170,6 +177,15 @@ async def exigir_codigo(request, chamar):
 
 # os aplicativos Android carregam as páginas deste servidor (CORS); o acesso é pelo código, não pela origem
 app.add_middleware(CORSMiddleware, allow_origins=['*'], allow_methods=['*'], allow_headers=['*'])
+
+
+@app.get('/api/tempo-real')
+def tempo_real(request: Request, desde: int = 0, cliente: str = '', mat: str = ''):
+    """Plano B do tempo real (hospedagem que limita WebSocket): estado + avisos desde `desde`, filtrados pelo papel."""
+    info = {'papel': acesso.papel(token_de(request)) or 'passageiro', 'cliente': cliente, 'mat': ''.join(ch for ch in mat if ch.isdigit())}
+    est = visao()
+    return {'estado': est if info['papel'] == 'operacao' else para_passageiro(est, info),
+            'msgs': [m for m in recentes if m['em'] > desde and serve_para(m, info)], 'agora': agora()}
 
 
 class Entrada(BaseModel):

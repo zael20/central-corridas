@@ -61,10 +61,23 @@
   const ouvintes = [];
   let estado = null, locais = [], LC = {};
   function conectar(statusEl) {
-    let ws, tentativa = 0;
+    let ws, tentativa = 0, falhas = 0, consulta = null, desde = Date.now();
+    const entregar = msg => { if (msg.tipo === 'estado') estado = msg.estado; for (const f of ouvintes) try { f(msg, estado); } catch (e) { console.error(e); } };
+    // Plano B: se o tempo real (WebSocket) não conecta, consulta o servidor a cada 3 s
+    const consultar = async () => {
+      try {
+        const j = await api(`/api/tempo-real?desde=${desde}&cliente=${encodeURIComponent(clienteId)}&mat=${encodeURIComponent(ls.get('matricula') || '')}`);
+        desde = j.agora;
+        for (const m of j.msgs) entregar(m);
+        entregar({ tipo: 'estado', estado: j.estado });
+        statusEl && (statusEl.className = 'modo on', statusEl.innerHTML = '<i></i> Conectado (atualiza a cada 3 s)');
+      } catch (e) { statusEl && (statusEl.className = 'modo', statusEl.innerHTML = '<i></i> Sem conexão, tentando…'); }
+    };
+    const ligarConsulta = () => { if (!consulta) { consultar(); consulta = setInterval(consultar, 3000); } };
+    const desligarConsulta = () => { if (consulta) { clearInterval(consulta); consulta = null; } };
     const abrir = () => {
       ws = new WebSocket(SERVIDOR.replace(/^http/, 'ws') + '/ws?t=' + encodeURIComponent(token()) + '&cliente=' + encodeURIComponent(clienteId) + '&mat=' + encodeURIComponent(ls.get('matricula') || ''));
-      ws.onopen = () => { tentativa = 0; statusEl && (statusEl.className = 'modo on', statusEl.innerHTML = '<i></i> Conectado'); };
+      ws.onopen = () => { tentativa = 0; falhas = 0; desligarConsulta(); statusEl && (statusEl.className = 'modo on', statusEl.innerHTML = '<i></i> Conectado'); };
       ws.onmessage = ev => {
         const msg = JSON.parse(ev.data);
         if (msg.tipo === 'estado') estado = msg.estado;
@@ -72,6 +85,7 @@
       };
       ws.onclose = ev => {
         if (ev.code === 4401) { pedirCodigo(ls.get('papel') === 'operacao' ? 'operacao' : 'codigo'); return; }
+        if (++falhas >= 2) { ligarConsulta(); setTimeout(abrir, 30000); return; } // tenta o tempo real de novo a cada 30 s
         statusEl && (statusEl.className = 'modo', statusEl.innerHTML = '<i></i> Sem conexão, tentando…');
         setTimeout(abrir, Math.min(10000, 1000 * 2 ** tentativa++));
       };

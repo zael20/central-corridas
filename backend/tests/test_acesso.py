@@ -35,6 +35,9 @@ def test_codigos():
             est = w.receive_json()['estado']
             assert [x['matricula'] for x in est['corridas']] == ['3321'], est['corridas']
             assert est['checagens'] == [] and est['eventos'] == []
+        tr = c.get('/api/tempo-real?cliente=cli-a', headers=hp).json()  # plano B sem WebSocket
+        assert [x['matricula'] for x in tr['estado']['corridas']] == ['3321'] and 'agora' in tr
+        assert len(c.get('/api/tempo-real', headers=ho).json()['estado']['corridas']) == 2
         with c.websocket_connect(f"/ws?t={to['token']}") as w:
             assert len(w.receive_json()['estado']['corridas']) == 2
 
