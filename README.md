@@ -115,7 +115,7 @@ Se o arquivo YAML tiver erro, a central mostra o erro e continua usando a versã
 - **Situações reconhecidas:** pedir · informação/demora · cancelar · não embarquei (o carro saiu sem mim) · não encontro o carro / local errado · reclamação. As frases ficam em `intencoes` no `assistente.yaml`. Palavras longas toleram 1 letra errada.
 - **Pela situação da viagem:** se a viagem já começou e a pessoa diz que ainda está esperando, vira "não embarquei". Se a pessoa já tem viagem aberta e pede de novo, a central responde a viagem que já existe e não cria outra.
 - **Não embarquei:** o motorista vê os dados do passageiro registrado e confirma ("é Fulano, matrícula X") ou informa nome e matrícula de quem está no carro. A resposta fica gravada na corrida (`embarcouDeFato`) e no cadastro.
-- **Voz da central (servidor):** o servidor gera a fala com o Kokoro (código aberto, offline), voz feminina brasileira *Dora*. Todos os aparelhos ouvem a mesma voz. Modelo em `%LOCALAPPDATA%\central-corridas\modelos` (`kokoro-v1.0.onnx` e `voices-v1.0.bin`, das releases *model-files-v1.0* de github.com/thewh1teagle/kokoro-onnx), pacote `kokoro-onnx` (instale com `pip install -r backend/requirements-voz.txt`). Sem o modelo, as telas usam a voz do aparelho.
+- **Voz da central (servidor):** o servidor gera a fala com o Kokoro (código aberto, offline), uma voz feminina só, fixa: *Bella* (mistura da Dora brasileira com a Bella do Kokoro, falando português; escolhida em 2026-10-20). Não há escolha de voz nas telas, só a velocidade. Todos os aparelhos ouvem a mesma voz. Modelo em `%LOCALAPPDATA%\central-corridas\modelos` (`kokoro-v1.0.onnx` ou o menor `kokoro-v1.0.int8.onnx`, e `voices-v1.0.bin`, das releases *model-files-v1.0* de github.com/thewh1teagle/kokoro-onnx), pacote `kokoro-onnx` (instale com `pip install -r backend/requirements-voz.txt`). Sem o modelo, as telas usam uma voz feminina do aparelho. Memória medida: ~560 MB com o modelo completo, ~340 MB com o int8 (que gasta mais processador); por isso no Render grátis a voz fica desligada (`VOZ=0`). Para ter a Bella no Render, a voz roda num servidor à parte (pasta `voz-servico/`, feita para um Hugging Face Space grátis com Docker) e o Render busca o áudio lá: configure `VOZ_URL` (endereço do Space) e `VOZ_SEGREDO` (o mesmo segredo nos dois lados). Se o servidor de voz não responder, as telas usam a voz do aparelho e a central tenta de novo depois de 1 minuto.
 - **Voz do aparelho:** feminina por padrão. No Microsoft Edge a central usa as vozes neurais "Francisca/Thalita (Natural)". Cada tela tem o painel **Voz** para escolher a voz e a velocidade.
 
 ## 3e. Viagem compartilhada
@@ -131,12 +131,14 @@ Um carro que já está em rota, com lugar sobrando, pode buscar outro passageiro
 ## 4. APK Android
 
 O APK é só uma casca: as telas vêm de `frontend/` e toda a regra vem do servidor. Na primeira abertura, o app pede o endereço do servidor.
-São dois APKs: **Pool Passageiro** e **Pool Motorista**.
+O APK gerado é o **Pool Motorista**. O passageiro usa a página `passageiro.html` no navegador (o `preparar.js` ainda sabe montar um APK de passageiro, se precisar).
+
+Ao abrir, o app do motorista pede: localização, localização o tempo todo, notificações, bateria sem restrição e sobrepor a outros apps (para abrir por cima quando chega corrida). Dá para rever em Menu → Permissões do app.
 
 **Pelo GitHub (grátis, sem instalar nada):**
 1. Coloque a pasta `uber-radio` num repositório do GitHub.
 2. Abra Actions → **Gerar APKs** → Run workflow.
-3. Quando terminar, baixe `pool-passageiro` e `pool-motorista` em *Artifacts*.
+3. Quando terminar, baixe o `pool-motorista.apk` na página *Releases* (`apk-main`): https://github.com/zael20/central-corridas/releases/download/apk-main/pool-motorista.apk
 
 **No PC (Android Studio instalado):**
 ```
@@ -151,6 +153,18 @@ npx cap open android          → Build → Build APK
 ```
 
 Para instalar no celular, copie o `.apk` e permita "instalar apps desconhecidos". No app, o microfone usa o reconhecimento de voz do Google, e a voz usa o TTS do celular.
+
+**Acessos por pessoa (aba Acessos da central).** Cada pessoa entra só com a matrícula (sem código), e na central e no app do motorista só entra quem está cadastrado na aba, com perfil Adm (central e cadastro), Motorista (app do motorista) ou Passageiro. A matrícula `ADM_MATRICULA` (padrão 8015) é sempre adm. Os códigos gerais antigos ainda são aceitos pelo servidor, mas não aparecem mais nas telas. No Render grátis o disco é apagado ao reiniciar: os acessos cadastrados somem e só o adm principal volta sozinho.
+
+**Link do passageiro: `/passageiro`.** Abre direto a tela de pedir pool, sem a escolha de telas. Qualquer matrícula entra como passageiro (para exigir cadastro, use `PASSAGEIRO_LIVRE=0`); se a central já conhece o nome daquela matrícula, ele vem preenchido. A página pede a localização do celular: o formulário já escolhe o local mais perto (até 400 m) como origem, e um pedido falado ou digitado sem dizer onde a pessoa está usa essa posição como origem. O pedido sai no nome da matrícula que entrou; para pedir para outra pessoa, marque **Para outra pessoa** (nome e matrícula de quem vai) ou fale o nome e a matrícula dela. A viagem guarda quem pediu (`pedidoPor`) e a posição de quem pediu (`posPassageiro`).
+
+**Tela do motorista.** Mapa na tela inteira, barra com o motorista do turno (matrícula; o nome vem do cadastro), painel de baixo que recolhe para ver só o mapa, pop-up para aceitar/recusar corrida e cartão da próxima corrida prevista.
+
+**GPS do Pool Motorista em segundo plano.** No APK do motorista, a posição é enviada por um serviço do Android (código em `android/nativo/`, instalado pelo `preparar.js`), e não pela página. Ele continua com a tela desligada ou o app minimizado e deixa uma notificação fixa "Pool Motorista em operação".
+- Liga sozinho quando o carro está **assumido** neste celular e **em operação**; desliga em "Sair de operação".
+- Manda a posição a cada 10 s para `POST /api/motoristas/{carro}/gps` (também com o carro parado, para a central saber que o celular está vivo).
+- Em celulares que economizam bateria (Samsung, Xiaomi, Motorola), toque em "Não deixar o Android pausar o GPS" na tela do motorista.
+- O endereço que vem preenchido na primeira abertura é `https://central-corridas.onrender.com`; para outro, gere com `SERVIDOR=http://... node scripts/preparar.js` ou troque no app em "Servidor".
 
 ## 5. Testes
 

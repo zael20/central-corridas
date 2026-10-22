@@ -12,7 +12,7 @@ from datetime import datetime, timedelta, timezone
 from . import despacho
 from .assistente import entender, normalizar, preencher
 from .pessoas import nomes_parecidos
-from .estado import agora, xy_para_geo
+from .estado import agora, geo_para_xy, xy_para_geo
 from .locais import LOCAIS
 
 MIN = despacho.MIN
@@ -215,7 +215,19 @@ class Central:
                 return 'informacao', 'a pessoa já tem viagem aberta (pedido repetido ou incompleto)'
         return intencao, None
 
+    @staticmethod
+    def local_perto(lat, lon, raio_km=0.4):
+        """Local cadastrado mais perto da posição (GPS do celular do passageiro), se estiver a até raio_km."""
+        p = geo_para_xy(lat, lon)
+        perto = min(LOCAIS, key=lambda l: math.hypot(l['x'] - p['x'], l['y'] - p['y']), default=None)
+        return perto['id'] if perto and math.hypot(perto['x'] - p['x'], perto['y'] - p['y']) <= raio_km else None
+
     def _pedir(self, texto, it, canal, ident, nome, matricula, t, fonte, minha=None):
+        # "preciso de um pool para a usina" sem dizer onde está: usa o GPS do celular do passageiro
+        if 'origem' in (it.get('faltando') or []) and ident.get('lat') is not None and ident.get('lon') is not None:
+            perto = self.local_perto(ident['lat'], ident['lon'])
+            if perto and perto != it.get('destino'):
+                it = {**it, 'origem': perto, 'faltando': [f for f in it['faltando'] if f != 'origem'], 'origemPeloGps': True}
         if it.get('faltando'):
             falta = ' e '.join('onde você está' if f == 'origem' else 'para onde vai' for f in it['faltando'])
             return {'fala': self.cfg.resposta('falta_dados', falta=falta, nome=nome.split(' ')[0] if nome else '')}
@@ -223,7 +235,11 @@ class Central:
             'origem': it['origem'], 'destino': it['destino'], 'passageiros': it.get('passageiros') or 1,
             'solicitante': nome, 'matricula': matricula, 'setor': it.get('setor') or '', 'urgente': it.get('urgente'),
             'canal': canal, 'criadoPor': ident.get('clienteId') or '', 'textoFalado': texto, 'agendadoPara': self.agendamento(it.get('horario'), t),
-            'interpretacao': {'fonte': fonte, 'confianca': it.get('confianca'), 'origem': it.get('origem'), 'destino': it.get('destino')},
+            'interpretacao': {'fonte': fonte, 'confianca': it.get('confianca'), 'origem': it.get('origem'), 'destino': it.get('destino'),
+                              'origemPeloGps': bool(it.get('origemPeloGps'))},
+            'posPassageiro': {'lat': ident['lat'], 'lon': ident['lon'], 'precisao': ident.get('precisao'), 'em': t} if ident.get('lat') is not None else None,
+            # pedido para outra pessoa: guarda quem pediu (a matrícula de quem está com o celular)
+            'pedidoPor': {'nome': ident.get('nome') or '', 'matricula': ident['matricula']} if ident.get('matricula') and ident['matricula'] != matricula else None,
         }, self.e.est(), t)
         r, ops = res['corrida'], res['ops']
         if not r.get('carro') and r['status'] != 'agendada':

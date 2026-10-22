@@ -3,7 +3,8 @@
 (function () {
   const ls = { get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }, set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} } };
   // Endereço do servidor: o próprio site, ou o que foi digitado na tela inicial (app Android)
-  const SERVIDOR = (ls.get('servidor') || (location.protocol.startsWith('http') ? location.origin : '')).replace(/\/$/, '');
+  // No APK a página roda dentro do celular (http://localhost): sem servidor salvo, usa o que veio no APK, nunca o próprio celular.
+  const SERVIDOR = (ls.get('servidor') || window.SERVIDOR_PADRAO || (location.protocol.startsWith('http') && !window.Capacitor ? location.origin : '')).replace(/\/$/, '');
   const clienteId = ls.get('clienteId') || (() => { const id = 'cli-' + Math.random().toString(36).slice(2, 10); ls.set('clienteId', id); return id; })();
 
   const $ = id => document.getElementById(id);
@@ -19,41 +20,46 @@
   // ---------- código de acesso ----------
   const token = () => ls.get('acesso') || '';
   const comToken = url => url + (url.includes('?') ? '&' : '?') + 't=' + encodeURIComponent(token());
-  let pedindo = null;
+  let pedindo = null, nivelTela = null;
+  // nível que a tela exige: 'operacao' (central), 'motorista' (app do motorista: adm ou motorista), 'codigo' (passageiro)
+  const PAPEIS_OK = { tv: ['tv', 'operacao'], operacao: ['operacao'], motorista: ['operacao', 'motorista'], codigo: ['operacao', 'motorista', 'passageiro'] };
+  const TITULO = { operacao: 'Acesso da central', motorista: 'Acesso do motorista', codigo: 'Acesso' };
+  const DICA = { operacao: 'Matrícula de administrador.', motorista: 'Sua matrícula (cadastrada pela central).', codigo: 'Digite a sua matrícula.' };
   function pedirCodigo(precisa, aviso) {
-    if (pedindo) { // já tem a caixa aberta: se agora precisa do código da operação, a caixa passa a pedir esse
-      if (precisa === 'operacao' && !pedindo.op) { pedindo.op = true; pedindo.el.querySelector('h2').textContent = 'Código da operação';
-        pedindo.el.querySelector('.aviso').textContent = 'Central e motorista usam o código da operação.'; }
-      return;
-    }
-    const estado_ = { op: precisa === 'operacao', el: null }; pedindo = estado_;
+    const nivel = nivelTela || (precisa === 'operacao' ? 'operacao' : 'codigo');
+    if (pedindo) return;
+    pedindo = true;
     const d = document.createElement('div');
     d.className = 'codigo-fundo';
-    d.innerHTML = `<form class="painel codigo-caixa"><h2>${estado_.op ? 'Código da operação' : 'Código de acesso'}</h2>
-      <p class="aviso">${esc(aviso || (estado_.op ? 'Central e motorista usam o código da operação.' : 'Digite o código que a central passou para você.'))}</p>
-      <input type="password" inputmode="numeric" autocomplete="off" class="cod-in" aria-label="Código">
+    d.innerHTML = `<form class="painel codigo-caixa"><h2>${TITULO[nivel]}</h2>
+      <p class="aviso">${esc(aviso && !/^Entre com a sua matrícula/.test(aviso) ? aviso : DICA[nivel])}</p>
+      <label>Matrícula<input type="text" inputmode="numeric" autocomplete="username" class="mat-in" value="${esc(ls.get('matricula') || '')}"></label>
       <p class="falta cod-erro" hidden></p><div class="acoes"><button class="btn principal" type="submit">Entrar</button></div></form>`;
-    document.body.appendChild(d); estado_.el = d;
-    const inp = d.querySelector('.cod-in'); inp.focus();
+    document.body.appendChild(d);
+    const mat = d.querySelector('.mat-in');
+    mat.focus();
     d.querySelector('form').onsubmit = async ev => {
       ev.preventDefault();
       const erro = d.querySelector('.cod-erro'); erro.hidden = true;
       try {
-        const r = await fetch(SERVIDOR + '/api/entrar', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ codigo: inp.value }) });
+        const r = await fetch(SERVIDOR + '/api/entrar', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ matricula: mat.value }) });
         const j = await r.json().catch(() => ({}));
-        if (!r.ok) throw new Error(j.detail || 'Código incorreto.');
-        if (estado_.op && j.papel !== 'operacao') throw new Error('Este é o código de passageiro. Aqui precisa do código da operação.');
-        ls.set('acesso', j.token); ls.set('papel', j.papel); location.reload();
-      } catch (e) { erro.hidden = false; erro.textContent = e.message; inp.select(); }
+        if (!r.ok) throw new Error(j.detail || 'Matrícula não cadastrada.');
+        if (!PAPEIS_OK[nivel].includes(j.papel)) throw new Error(nivel === 'operacao' ? 'Este acesso não é de administrador.' : 'Este acesso é de passageiro. Peça à central um acesso de motorista.');
+        ls.set('acesso', j.token); ls.set('papel', j.papel);
+        if (j.matricula) { ls.set('matricula', j.matricula); ls.set('nome', j.nome || ''); ls.set('perfil', j.perfil || ''); }
+        location.reload();
+      } catch (e) { erro.hidden = false; erro.textContent = e.message; mat.select(); }
     };
   }
+  const sair = () => { ['acesso', 'papel', 'perfil'].forEach(k => ls.set(k, '')); location.reload(); };
 
   async function api(caminho, dados, metodo) {
     const r = await fetch(SERVIDOR + caminho, { method: metodo || (dados === undefined ? 'GET' : 'POST'),
       headers: { 'Content-Type': 'application/json', 'X-Acesso': token() }, body: dados === undefined ? undefined : JSON.stringify(dados) });
     const j = await r.json().catch(() => ({}));
     if ((r.status === 401 || r.status === 403) && j.precisa) pedirCodigo(j.precisa, j.detail);
-    if (!r.ok) throw new Error(j.detail || ('Erro ' + r.status));
+    if (!r.ok) { const e = new Error(j.detail || ('Erro ' + r.status)); e.status = r.status; throw e; }
     return j;
   }
 
@@ -98,6 +104,18 @@
     LC = Object.fromEntries(locais.map(l => [l.id, l]));
     try { cfgMapa = await api('/api/mapa/config'); } catch (e) { cfgMapa = cfgMapa || {}; }
   }
+  function semServidor(statusEl, erro, tentativa) {
+    let d = document.querySelector('.sem-servidor');
+    if (!erro) { d && d.remove(); return; }
+    statusEl && (statusEl.className = 'modo', statusEl.innerHTML = '<i></i> Sem conexão, tentando…');
+    if (!d) { d = document.createElement('div'); d.className = 'codigo-fundo sem-servidor'; document.body.appendChild(d); }
+    const motivo = erro.status ? `O endereço respondeu, mas não parece ser a central (erro ${erro.status}).` : 'Não houve resposta (sem internet, rede bloqueada ou servidor desligado).';
+    d.innerHTML = `<div class="painel codigo-caixa"><h2>Sem conexão com a central</h2>
+      <p>Servidor: <b>${esc(SERVIDOR)}</b></p><p class="aviso">${esc(motivo)} Tentativa ${tentativa + 1}, tentando de novo sozinho…</p>
+      <p class="aviso">A central no Render grátis dorme sem uso e leva até 1 minuto para acordar. Na rede da empresa o site pode estar bloqueado: teste com os dados móveis.</p>
+      <div class="acoes"><button class="btn principal" type="button" onclick="location.reload()">Tentar agora</button>
+      <a class="btn" href="index.html?config=1">Trocar servidor</a></div></div>`;
+  }
   async function iniciar(statusEl, { papel } = {}) {
     if (!SERVIDOR) { location.href = 'index.html'; return; }
     // link com o código (ex.: painel na TV: painel.html?codigo=123456): entra sozinho e tira o código do endereço
@@ -109,12 +127,22 @@
       } catch (e) {}
       q.delete('codigo'); history.replaceState(null, '', location.pathname + (q.toString() ? '?' + q : ''));
     }
-    if (papel === 'operacao' && ls.get('papel') !== 'operacao') {
+    nivelTela = papel || 'codigo';
+    if (papel && !PAPEIS_OK[papel].includes(ls.get('papel'))) {
       // sem código ainda (ou com o de passageiro): o servidor diz se a proteção está ligada
       const r = await fetch(SERVIDOR + '/api/estado', { headers: { 'X-Acesso': token() } }).catch(() => null);
       if (r && (r.status === 401 || r.status === 403)) { pedirCodigo('operacao'); return new Promise(() => {}); }
     }
-    try { await carregarLocais(); } catch (e) { return new Promise(() => {}); } // pediu o código: espera
+    // sem resposta do servidor: avisa na tela e tenta de novo sozinho (antes ficava em "Conectando…" para sempre)
+    for (let tentativa = 0; ; tentativa++) {
+      try { await carregarLocais(); break; }
+      catch (e) {
+        if (e.status === 401 || e.status === 403) return new Promise(() => {}); // pediu o código: espera
+        semServidor(statusEl, e, tentativa);
+        await new Promise(ok => setTimeout(ok, Math.min(15000, 3000 + tentativa * 2000)));
+      }
+    }
+    semServidor(null);
     // locais marcados/alterados na central: todos os aparelhos recarregam os pontos e a chave do mapa
     ouvintes.unshift(async msg => {
       if (msg.tipo !== 'locais') return;
@@ -127,9 +155,30 @@
   }
 
   // ---------- voz ----------
-  const plug = () => (window.Capacitor && window.Capacitor.Plugins) || {};
-  // Voz: prefere as vozes neurais femininas (Edge: "Francisca/Thalita Online (Natural)"), depois a do Google e a Maria do Windows.
-  // A escolha e a velocidade ficam salvas neste aparelho (painel "Voz").
+  // Plugins nativos do APK. As telas não usam o @capacitor/core, então o Capacitor.Plugins não vem pronto:
+  // aqui cada plugin que o app Android declara (Capacitor.PluginHeaders) vira um objeto com os métodos dele.
+  let plugins = null;
+  const plug = () => {
+    const cap = window.Capacitor;
+    if (!cap || !cap.nativePromise) return (cap && cap.Plugins) || {};
+    if (!plugins) {
+      plugins = Object.assign({}, cap.Plugins);
+      for (const h of cap.PluginHeaders || []) {
+        if (plugins[h.name]) continue;
+        const o = {};
+        for (const m of h.methods || []) o[m.name] = opcoes => cap.nativePromise(h.name, m.name, opcoes || {});
+        o.addListener = async (eventName, f) => {
+          const callbackId = cap.nativeCallback(h.name, 'addListener', { eventName }, f);
+          return { remove: () => cap.nativePromise(h.name, 'removeListener', { eventName, callbackId }) };
+        };
+        plugins[h.name] = o;
+      }
+    }
+    return plugins;
+  };
+  // Voz da central: uma só, fixa (Bella, gerada no servidor). Sem o servidor de voz, usa uma voz feminina do aparelho,
+  // preferindo as neurais (Edge: "Francisca/Thalita Online (Natural)"), depois a do Google e a Maria do Windows.
+  // Só a velocidade fica salva neste aparelho (painel "Voz").
   const PREFERIDAS = [/francisca.*natural/i, /thalita.*natural/i, /(brenda|elza|giovanna|leila|leticia|manuela|yara).*natural/i, /natural/i,
     /google portugu[eê]s do brasil/i, /luciana/i, /maria/i, /francisca/i];
   function vozesPt() {
@@ -137,9 +186,9 @@
   }
   const MASCULINAS = /daniel|antonio|ant[oô]nio|donato|fabio|f[aá]bio|julio|j[uú]lio|nicolau|valerio|val[eé]rio|humberto|francisco|ricardo|heitor|male|masculin/i;
   function vozEscolhida() {
-    const vs = vozesPt(), salva = ls.get('vozEscolha');
+    const vs = vozesPt();
     const femininas = vs.filter(v => !MASCULINAS.test(v.name));
-    return vs.find(v => v.name === salva) || PREFERIDAS.map(r => femininas.find(v => r.test(v.name))).find(Boolean) || femininas[0] || vs[0] || null;
+    return PREFERIDAS.map(r => femininas.find(v => r.test(v.name))).find(Boolean) || femininas[0] || vs[0] || null;
   }
   // as vozes do navegador carregam depois da página: espera um pouco para não cair na voz padrão (que pode ser masculina)
   const vozesProntas = () => new Promise(ok => {
@@ -171,7 +220,7 @@
     setTimeout(proximaFala, Math.random() * 200); // desencontra abas que recebem o mesmo aviso ao mesmo tempo
   }
 
-  // Voz do servidor (Kokoro): a mesma voz natural em todos os aparelhos. Sem ela, usa a voz do navegador/celular.
+  // Voz do servidor (Kokoro, Bella): a mesma voz natural em todos os aparelhos. Sem ela, usa a voz do navegador/celular.
   let infoSrv = null;
   async function vozServidor() {
     if (infoSrv && (infoSrv.disponivel || Date.now() - infoSrv.em < 15000)) return infoSrv;
@@ -186,8 +235,8 @@
     a.onerror = () => falha(new Error('áudio'));
     a.play().catch(falha);
   });
-  async function falarServidor(frases, id) {
-    const url = f => comToken(`${SERVIDOR}/api/voz?texto=${encodeURIComponent(f)}&voz_id=${encodeURIComponent(id)}&vel=${velVoz()}`);
+  async function falarServidor(frases) {
+    const url = f => comToken(`${SERVIDOR}/api/voz?texto=${encodeURIComponent(f)}&vel=${velVoz()}`);
     let prox = baixar(url(frases[0]));
     for (let i = 0; i < frases.length; i++) {
       const blob = await prox;
@@ -215,11 +264,10 @@
     const fim = () => { if (terminou) return; terminou = true; falando = false; canalVoz && canalVoz.postMessage({ tipo: 'fim' }); setTimeout(proximaFala, 300); };
     // uma frase por vez: pausa natural entre elas e nada é cortado
     const frases = (texto.match(/[^.!?]+[.!?]*/g) || [texto]).map(s => s.trim()).filter(Boolean);
-    const escolha = ls.get('vozEscolha') || '';
     try {
       const srv = await vozServidor();
-      if (srv.disponivel && (!escolha || escolha.startsWith('srv:'))) {
-        try { await falarServidor(frases, escolha.startsWith('srv:') ? escolha.slice(4) : srv.padrao); return fim(); }
+      if (srv.disponivel) {
+        try { await falarServidor(frases); return fim(); }
         catch (e) { console.warn('voz do servidor falhou, usando a do aparelho', e); }
       }
       const tts = plug().TextToSpeech;
@@ -229,27 +277,20 @@
       setTimeout(fim, 2000 + texto.length * 120); // garantia, se o navegador não avisar o fim
     } catch (e) { fim(); }
   }
-  // Painel de escolha da voz (vai dentro de um elemento qualquer)
+  // Painel da voz (vai dentro de um elemento qualquer): a voz é fixa; aqui só a velocidade e o teste
   function painelVoz(el) {
     const montar = async () => {
-      const srv = await vozServidor(), vs = vozesPt(), escolha = ls.get('vozEscolha') || '';
-      const atualNav = vozEscolhida();
-      const usandoSrv = srv.disponivel && (!escolha || escolha.startsWith('srv:'));
-      const opSrv = srv.disponivel ? srv.vozes.map(v => `<option value="srv:${v.id}" ${(escolha === 'srv:' + v.id || (!escolha && v.id === srv.padrao)) ? 'selected' : ''}>${esc(v.nome)} · voz da central</option>`).join('') : '';
-      const opNav = vs.map(v => `<option value="${esc(v.name)}" ${!usandoSrv && atualNav && v.name === atualNav.name ? 'selected' : ''}>${esc(v.name)} · deste aparelho</option>`).join('');
+      const srv = await vozServidor();
       el.innerHTML = `<div class="form">
-        <label>Voz<select class="pv-voz">${opSrv + opNav || '<option>Voz padrão do aparelho</option>'}</select></label>
         <label>Velocidade<input type="range" class="pv-vel" min="0.7" max="1.3" step="0.05" value="${velVoz()}"></label>
         <div class="acoes cheia"><button class="btn pv-testar" type="button">Testar voz</button></div></div>
-        <p class="aviso" style="margin:6px 0 0">${srv.disponivel ? 'A “voz da central” é gerada no servidor: todos os aparelhos ouvem a mesma voz, sem internet.'
-          : srv.carregando ? 'Carregando a voz da central no servidor…' : 'Voz da central indisponível no servidor; usando a voz deste aparelho.'}</p>`;
-      el.querySelector('.pv-voz').onchange = e => ls.set('vozEscolha', e.target.value);
+        <p class="aviso" style="margin:6px 0 0">${srv.disponivel ? `Voz da central: ${esc(srv.voz || 'Bella')}. Todos os aparelhos ouvem a mesma voz.`
+          : srv.carregando ? 'Carregando a voz da central no servidor…' : 'Voz da central indisponível neste servidor; usando a voz feminina deste aparelho.'}</p>`;
       el.querySelector('.pv-vel').onchange = e => ls.set('vozVel', e.target.value);
       el.querySelector('.pv-testar').onclick = () => falar('Olá! Aqui é a central de corridas. Sua viagem está confirmada, e o veículo chega em três minutos. Câmbio.', { forcar: true });
       if (srv.carregando) setTimeout(() => { infoSrv = null; montar(); }, 4000);
     };
     montar();
-    try { speechSynthesis.addEventListener('voiceschanged', montar); } catch (e) {}
   }
   // Microfone estilo rádio: fica aberto até a pessoa mandar parar (pausas para pensar não fecham).
   // O reconhecimento do navegador/celular desliga sozinho no silêncio; aqui ele é religado na hora e o texto vai somando.
@@ -398,10 +439,12 @@
       { maxZoom: 20, attribution: '<a href="https://www.maptiler.com/copyright/" target="_blank">© MapTiler</a> <a href="https://www.openstreetmap.org/copyright" target="_blank">© OpenStreetMap</a>' });
     return L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19, attribution: 'Imagens © Esri' });
   }
-  function enquadrar(inst, pontos) {
-    const b = pontos.filter(Boolean);
-    if (b.length === 1) inst.map.setView(b[0], 16);
-    else if (b.length) inst.map.fitBounds(b, { padding: [30, 30], maxZoom: 17 });
+  // margem: espaço coberto por painéis por cima do mapa ({ topo, baixo } em px), para a rota não ficar escondida
+  function enquadrar(inst, pontos, margem) {
+    const b = pontos.filter(Boolean), m = margem || {};
+    const opc = { paddingTopLeft: [30, 30 + (m.topo || 0)], paddingBottomRight: [30, 30 + (m.baixo || 0)], maxZoom: 17 };
+    if (b.length === 1) inst.map.fitBounds([b[0], b[0]], opc);
+    else if (b.length) inst.map.fitBounds(b, opc);
   }
   function novoMapa(el, aoClicar) {
     const map = L.map(el, { zoomControl: true });
@@ -416,7 +459,7 @@
   }
   // el: <div class="mapa-sat">. carro: mostra só esse carro. alvos: ids de locais em destaque.
   // aoClicar(latlng): clique no mapa (aba Locais). rotulos: nome fixo em todos os locais.
-  function mapa(el, { carro, alvos, aoClicar, rotulos } = {}) {
+  function mapa(el, { carro, alvos, aoClicar, rotulos, margem } = {}) {
     if (!el || !estado || !locais.length) return;
     if (!window.L) return mapaEsquema(el, { carro, alvos });
     const inst = el._mapa || (el._mapa = novoMapa(el, aoClicar));
@@ -451,7 +494,7 @@
     const foco = carro ? carro + '|' + [...A].join(',') : '';
     if (foco && inst.enquadrado !== foco) {
       inst.enquadrado = foco;
-      enquadrar(inst, [...carros.map(m => [m.pos.lat, m.pos.lon]), ...[...A].map(id => LC[id] && [LC[id].lat, LC[id].lon])]);
+      enquadrar(inst, [...carros.map(m => [m.pos.lat, m.pos.lon]), ...[...A].map(id => LC[id] && [LC[id].lat, LC[id].lon])], typeof margem === 'function' ? margem() : margem);
     }
   }
 
@@ -487,6 +530,6 @@
     por(svg, s);
   }
 
-  window.App = { ls, SERVIDOR, clienteId, comToken, $, esc, por, pill, hora, MIN, STATUS, api, iniciar, ouvintes, get estado() { return estado; }, get locais() { return locais; }, get LC() { return LC; },
+  window.App = { ls, SERVIDOR, clienteId, plug, token, sair, comToken, $, esc, por, pill, hora, MIN, STATUS, api, iniciar, ouvintes, get estado() { return estado; }, get locais() { return locais; }, get LC() { return LC; },
     get cfgMapa() { return cfgMapa; }, carregarLocais, falar, painelVoz, ouvir, bip, toast, caixaVoz, mapa, corDe, nomeLocal: id => (LC[id] ? LC[id].nome : id || '') };
 })();

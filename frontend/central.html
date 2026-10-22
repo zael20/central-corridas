@@ -8,7 +8,7 @@
   <div class="topo"><h1>Central de <span>Corridas</span></h1><div class="acoes"><span class="modo" id="con"><i></i> Conectando…</span><a class="aviso" style="margin:0" href="index.html?config=1">Servidor</a></div></div>
   <nav role="tablist">
     <button data-aba="operacao" aria-selected="true">Operação</button><button data-aba="radio">Rádio</button><button data-aba="assistente">Assistente</button>
-    <button data-aba="gestao">Gestão</button><button data-aba="frota">Frota</button><button data-aba="locais">Locais</button>
+    <button data-aba="gestao">Gestão</button><button data-aba="frota">Frota</button><button data-aba="locais">Locais</button><button data-aba="acessos">Acessos</button>
   </nav>
 </header>
 <main>
@@ -49,6 +49,29 @@
     </div>
   </div>
 
+  <div id="a-acessos" class="grade" hidden>
+    <div class="painel"><h2>Pessoas com acesso</h2>
+      <p class="aviso">Cada pessoa entra só com a <b>matrícula</b> cadastrada aqui; matrícula fora da lista não entra. <b>Adm</b>: central e cadastro de acessos. <b>Motorista</b>: app do motorista. <b>Passageiro</b>: app de pedir viagem.</p>
+      <div class="tabela" style="max-height:520px" id="u-lista"></div>
+    </div>
+    <div class="pilha">
+      <div class="painel"><h2 id="u-titulo">Cadastrar acesso</h2>
+        <div class="form">
+          <label>Matrícula<input type="text" id="u-mat" inputmode="numeric" autocomplete="off"></label>
+          <label>Nome<input type="text" id="u-nome" autocomplete="off"></label>
+          <label>Perfil<select id="u-perfil"><option value="motorista">Motorista</option><option value="passageiro">Passageiro</option><option value="adm">Adm</option></select></label>
+          <div class="acoes cheia"><button class="btn principal" id="u-salvar" type="button">Salvar</button><button class="btn" id="u-novo" type="button">Limpar</button></div>
+        </div>
+        <p class="aviso" id="u-dica" style="margin-top:8px">Mudar o perfil ou remover a pessoa faz ela sair dos aparelhos onde estava conectada.</p>
+      </div>
+      <div class="painel"><h2>Painel ao vivo (TV)</h2>
+        <p class="aviso">Abra este link na TV e deixe aberto: atualiza sozinho, sem login. Mostra a operação sem matrícula e só com o primeiro nome. Quem tiver o link vê o painel; para cortar o acesso, troque o código.</p>
+        <div class="acoes"><input type="text" id="tv-link" readonly style="flex:1"><button class="btn" id="tv-copiar" type="button">Copiar</button><a class="btn" id="tv-abrir" target="_blank">Abrir</a></div>
+        <div class="acoes" style="margin-top:8px"><label>Código do painel<input type="text" id="tv-cod" autocomplete="off"></label><button class="btn" id="tv-trocar" type="button" style="align-self:end">Trocar código</button></div>
+      </div>
+    </div>
+  </div>
+
   <div id="a-locais" class="grade" hidden>
     <div class="painel"><h2>Marcar locais no satélite</h2>
       <div class="form" style="margin-bottom:8px">
@@ -64,17 +87,6 @@
         <p class="aviso">Cole aqui o texto do botão “Copiar coordenadas” do painel antigo (formato {"gainf":[-3.25,-47.73], ...}).</p>
         <textarea rows="4" id="l-json" placeholder='{"gainf":[-3.2505,-47.737]}'></textarea>
         <div class="acoes" style="margin-top:8px"><button class="btn principal" id="l-importar" type="button">Importar</button></div>
-      </div>
-      <div class="painel"><h2>Códigos de acesso</h2>
-        <p class="aviso">Necessários quando o sistema está na internet. Passe o código de passageiro para quem vai pedir viagem; o da operação é só para a central e os motoristas. Ao trocar, quem estava conectado precisa digitar o código novo.</p>
-        <div class="form">
-          <label>Código de passageiro<input type="text" id="a-pass" autocomplete="off"></label>
-          <label>Código da operação<input type="text" id="a-op" autocomplete="off"></label>
-          <label>Código do painel (TV)<input type="text" id="a-tv" autocomplete="off"></label>
-          <div class="cheia"><p class="aviso" style="margin:0">Link do painel para deixar aberto na TV (entra sozinho, sem digitar código):</p>
-            <div class="acoes"><input type="text" id="a-link" readonly style="flex:1"><button class="btn" id="a-copiar" type="button">Copiar</button><a class="btn" id="a-abrir" target="_blank">Abrir painel</a></div></div>
-          <div class="acoes cheia"><button class="btn" id="a-salvar" type="button">Trocar códigos</button></div>
-        </div>
       </div>
       <div class="painel"><h2>Mapa e rotas</h2>
         <div class="form">
@@ -120,8 +132,8 @@
   document.querySelectorAll('[data-aba]').forEach(b => b.onclick = () => {
     aba = b.dataset.aba;
     document.querySelectorAll('[data-aba]').forEach(x => x.setAttribute('aria-selected', x === b));
-    for (const id of ['operacao', 'radio', 'assistente', 'gestao', 'frota', 'locais']) $('a-' + id).hidden = id !== aba;
-    render(); if (aba === 'assistente') conversas(); if (aba === 'gestao') gestao(); if (aba === 'locais') renderLocais(true);
+    for (const id of ['operacao', 'radio', 'assistente', 'gestao', 'frota', 'locais', 'acessos']) $('a-' + id).hidden = id !== aba;
+    render(); if (aba === 'assistente') conversas(); if (aba === 'gestao') gestao(); if (aba === 'locais') renderLocais(true); if (aba === 'acessos') carregarUsuarios();
   });
   $('csv').href = App.comToken(SERVIDOR + '/api/corridas.csv'); $('csv-conv').href = App.comToken(SERVIDOR + '/api/conversas.csv');
 
@@ -281,13 +293,36 @@
     try { const r = await api('/api/locais/importar', { pontos: j }); App.toast(`${r.importados} pontos importados (${r.marcados} marcados no total).`); $('l-json').value = ''; }
     catch (e) { App.toast(e.message); }
   };
-  api('/api/acesso').then(a => { $('a-pass').value = a.passageiro; $('a-op').value = a.operacao; $('a-tv').value = a.tv;
-    $('a-link').value = $('a-abrir').href = SERVIDOR + '/painel.html?codigo=' + encodeURIComponent(a.tv); }).catch(() => {});
-  $('a-copiar').onclick = () => { const i = $('a-link'); try { navigator.clipboard.writeText(i.value).then(() => App.toast('Link copiado.')); } catch (e) { i.select(); } };
-  $('a-salvar').onclick = async () => {
-    if (!confirm('Trocar os códigos? Todo mundo vai precisar digitar o código novo.')) return;
-    try { await api('/api/acesso', { passageiro: $('a-pass').value.trim(), operacao: $('a-op').value.trim(), tv: $('a-tv').value.trim() }); App.toast('Códigos trocados.'); App.ls.set('acesso', ''); location.reload(); }
-    catch (e) { App.toast(e.message); }
+  // ---------- aba Acessos ----------
+  const PERFIL = { adm: 'Adm', motorista: 'Motorista', passageiro: 'Passageiro' };
+  let usuarios = [];
+  async function carregarUsuarios() {
+    try { usuarios = await api('/api/usuarios'); } catch (e) { por('u-lista', `<p class="falta">${esc(e.message)}</p>`); return; }
+    por('u-lista', `<table><thead><tr><th>Matrícula</th><th>Nome</th><th>Perfil</th><th></th></tr></thead><tbody>${usuarios.map(u => `<tr>
+      <td>${esc(u.matricula)}</td><td>${esc(u.nome)}${u.principal ? ' <span class="aviso">(principal)</span>' : ''}</td><td>${PERFIL[u.perfil]}</td>
+      <td class="acoes"><button class="btn" data-uedit="${esc(u.matricula)}">Editar</button>${u.principal ? '' : `<button class="btn perigo" data-urem="${esc(u.matricula)}">Remover</button>`}</td></tr>`).join('')}</tbody></table>`);
+  }
+  const limparUsuario = () => { ['u-mat', 'u-nome'].forEach(id => { $(id).value = ''; }); $('u-mat').disabled = false; $('u-perfil').value = 'motorista'; por('u-titulo', 'Cadastrar acesso'); };
+  $('u-novo').onclick = limparUsuario;
+  $('u-lista').onclick = async ev => {
+    const ed = ev.target.closest('[data-uedit]'), rem = ev.target.closest('[data-urem]');
+    if (ed) { const u = usuarios.find(x => x.matricula === ed.dataset.uedit); $('u-mat').value = u.matricula; $('u-mat').disabled = true; $('u-nome').value = u.nome; $('u-perfil').value = u.perfil; por('u-titulo', 'Editar acesso'); $('u-nome').focus(); }
+    if (rem && confirm(`Remover o acesso da matrícula ${rem.dataset.urem}?`)) { try { await api(`/api/usuarios/${rem.dataset.urem}/remover`, {}); carregarUsuarios(); } catch (e) { App.toast(e.message); } }
+  };
+  $('u-salvar').onclick = async () => {
+    try {
+      const r = await api(`/api/usuarios/${encodeURIComponent($('u-mat').value.replace(/\D/g, ''))}`, { nome: $('u-nome').value.trim(), perfil: $('u-perfil').value });
+      App.toast(`Acesso de ${r.nome} salvo (${PERFIL[r.perfil]}).`); limparUsuario(); carregarUsuarios();
+    } catch (e) { App.toast(e.message); }
+  };
+  carregarUsuarios();
+  // painel da TV: link com o código do painel (entra sozinho)
+  const linkTv = cod => { $('tv-cod').value = cod; $('tv-link').value = $('tv-abrir').href = SERVIDOR + '/painel.html?codigo=' + encodeURIComponent(cod); };
+  api('/api/acesso').then(a => linkTv(a.tv)).catch(() => {});
+  $('tv-copiar').onclick = () => { const i = $('tv-link'); try { navigator.clipboard.writeText(i.value).then(() => App.toast('Link copiado.')); } catch (e) { i.select(); } };
+  $('tv-trocar').onclick = async () => {
+    if (!confirm('Trocar o código do painel? As TVs abertas com o link antigo param de atualizar.')) return;
+    try { const a = await api('/api/acesso', { tv: $('tv-cod').value.trim() }); linkTv(a.tv); App.toast('Código do painel trocado. Abra o link novo na TV.'); } catch (e) { App.toast(e.message); }
   };
   $('l-salvar').onclick = async () => {
     try { await api('/api/mapa/config', { maptilerKey: $('l-chave').value.trim(), velocidadeKmh: +$('l-vel').value || null, compartilhar: $('l-comp').checked,

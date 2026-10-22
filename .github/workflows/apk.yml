@@ -1,5 +1,6 @@
-# Gera os APKs (Passageiro e Motorista) no GitHub, de graça, sem instalar o Android Studio.
-# Como usar: Actions → "Gerar APKs" → Run workflow. Ao terminar, baixe em "Artifacts" no fim da página.
+# Gera o APK do Motorista no GitHub, de graça, sem instalar o Android Studio.
+# O passageiro usa só a página (navegador); para voltar a gerar o APK dele, ponha passageiro na lista app abaixo.
+# Como usar: Actions → "Gerar APKs" → Run workflow. Ao terminar, baixe na página Releases (apk-<branch>) ou em "Artifacts".
 name: Gerar APKs
 on:
   workflow_dispatch:
@@ -10,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        app: [passageiro, motorista]
+        app: [motorista]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -32,3 +33,18 @@ jobs:
       - run: cp android/android/app/build/outputs/apk/debug/app-debug.apk pool-${{ matrix.app }}.apk
       - uses: actions/upload-artifact@v4
         with: { name: 'pool-${{ matrix.app }}', path: 'pool-${{ matrix.app }}.apk' }
+  # Publica o APK numa "release" do GitHub: dá para baixar direto no celular, sem zip.
+  # Um link fixo por branch: .../releases/download/apk-<branch>/pool-motorista.apk
+  publicar:
+    needs: apk
+    runs-on: ubuntu-latest
+    permissions: { contents: write }
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { merge-multiple: true }
+      - name: Publicar release
+        env: { GH_TOKEN: '${{ github.token }}', TAG: 'apk-${{ github.ref_name }}' }
+        run: |
+          gh release delete "$TAG" --repo "$GITHUB_REPOSITORY" --cleanup-tag -y || true
+          gh release create "$TAG" pool-*.apk --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --prerelease --title "APKs ($GITHUB_REF_NAME)" --notes "Gerado automaticamente a partir de $GITHUB_SHA."

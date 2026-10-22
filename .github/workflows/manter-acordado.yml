@@ -1,0 +1,14 @@
+# O Render grátis dorme após 15 min sem acesso e, ao acordar, começa com o banco zerado.
+# Este agendamento chama a central a cada 10 min para ela não dormir, assim as viagens ficam
+# guardadas até o Power Automate (que lê a cada 30 min) copiar tudo para o SharePoint.
+# Um serviço ligado o mês todo usa ~744 h das 750 h grátis do Render: não ligue outro serviço grátis junto.
+name: Manter central acordada
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - run: curl -fsS --retry 3 --retry-delay 20 --max-time 90 https://central-corridas.onrender.com/api/saude

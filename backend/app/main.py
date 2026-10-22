@@ -28,6 +28,7 @@ from .locais import LOCAIS
 from .mapa import Mapa
 from .voz import Voz
 from .acesso import Acesso
+from . import integracao
 
 BASE = Path(__file__).resolve().parent.parent
 FRONT = Path(os.environ.get('FRONTEND_DIR', BASE.parent / 'frontend'))
@@ -83,11 +84,12 @@ def visao():
 def para_passageiro(est, info):
     """O passageiro só recebe as próprias viagens (pelo aparelho ou pela matrícula) e a posição dos carros."""
     def minha(r):
-        return (info['cliente'] and r.get('criadoPor') == info['cliente']) or (info['mat'] and r.get('matricula') == info['mat'])
+        return (info['cliente'] and r.get('criadoPor') == info['cliente']) or (info['mat'] and info['mat'] in (r.get('matricula'), (r.get('pedidoPor') or {}).get('matricula')))
     corridas = [r for r in est['corridas'] if minha(r)]
     carros = {r.get('carro') for r in corridas}
     motoristas = [{k: m.get(k) for k in ('id', 'nome', 'pos', 'onde', 'paradoMin', 'ativo', 'modo', 'capacidade')}
-                  | ({'rota': m.get('rota'), 'atual': m.get('atual'), 'ativas': m.get('ativas'), 'fila': []} if m['id'] in carros else {'fila': []})
+                  | ({'rota': m.get('rota'), 'atual': m.get('atual'), 'ativas': m.get('ativas'), 'fila': [],
+                      'motorista': (m.get('condutor') or {}).get('nome')} if m['id'] in carros else {'fila': []})
                   for m in est['motoristas']]
     return {'agora': est['agora'], 'motoristas': motoristas, 'corridas': [{k: v for k, v in r.items() if k != 'decisao'} for r in corridas],
             'checagens': [], 'eventos': [], 'configErro': None, 'rotasPelaEstrada': est.get('rotasPelaEstrada')}
@@ -103,11 +105,12 @@ def para_tv(est):
 
 
 def estado_para(est, info):
-    return est if info['papel'] == 'operacao' else para_tv(est) if info['papel'] == 'tv' else para_passageiro(est, info)
+    papel = info['papel']
+    return para_tv(est) if papel == 'tv' else para_passageiro(est, info) if papel == 'passageiro' else est
 
 
 def serve_para(msg, info):
-    if info['papel'] == 'operacao':
+    if info['papel'] in ('operacao', 'motorista'):
         return True
     if info['papel'] == 'tv':
         return msg.get('tipo') == 'locais'
@@ -173,6 +176,8 @@ LIVRE = {'/api/entrar', '/api/saude'}
 TV_PODE = re.compile(r'^/api/(locais|mapa/config|tempo-real)$')
 PASSAGEIRO_PODE = [('GET', re.compile(r'^/api/(locais|mapa/config|voz(/info)?|tempo-real)$')),
                    ('POST', re.compile(r'^/api/(assistente|corridas|corridas/[^/]+/cancelar)$'))]
+MOTORISTA_PODE = [('GET', re.compile(r'^/api/(estado|locais|mapa/config|voz(/info)?|tempo-real)$')),
+                  ('POST', re.compile(r'^/api/(assistente|motoristas/[^/]+/(gps|ativo|modo|condutor)|corridas/[^/]+/(cheguei|embarcou|finalizar|aceitar|recusar)|checagens/[^/]+)$'))]
 
 
 def token_de(request):
@@ -185,11 +190,12 @@ async def exigir_codigo(request, chamar):
     if p.startswith('/api/') and p not in LIVRE and request.method != 'OPTIONS':
         papel = acesso.papel(token_de(request))
         if not papel:
-            return JSONResponse({'detail': 'Digite o código de acesso.', 'precisa': 'codigo'}, status_code=401)
-        if papel == 'passageiro' and not any(request.method == m and rx.match(p) for m, rx in PASSAGEIRO_PODE):
-            return JSONResponse({'detail': 'Esta parte é só da central. Digite o código da operação.', 'precisa': 'operacao'}, status_code=403)
+            return JSONResponse({'detail': 'Entre com a sua matrícula.', 'precisa': 'codigo'}, status_code=401)
+        pode = {'passageiro': PASSAGEIRO_PODE, 'motorista': MOTORISTA_PODE}.get(papel)
+        if pode is not None and not any(request.method == m and rx.match(p) for m, rx in pode):
+            return JSONResponse({'detail': 'Esta parte é só da central: entre com uma matrícula de adm.', 'precisa': 'operacao'}, status_code=403)
         if papel == 'tv' and not (request.method == 'GET' and TV_PODE.match(p)):
-            return JSONResponse({'detail': 'O código do painel só serve para o painel. Digite o código da operação.', 'precisa': 'operacao'}, status_code=403)
+            return JSONResponse({'detail': 'O código do painel só serve para o painel.', 'precisa': 'operacao'}, status_code=403)
     return await chamar(request)
 
 
@@ -207,15 +213,51 @@ def tempo_real(request: Request, desde: int = 0, cliente: str = '', mat: str = '
 
 
 class Entrada(BaseModel):
-    codigo: str
+    codigo: str = ''      # códigos gerais (antigos)
+    matricula: str = ''  # acesso por pessoa: só a matrícula cadastrada na aba Acessos
 
 
 @app.post('/api/entrar')
 def entrar(e: Entrada):
-    papel, token = acesso.entrar(e.codigo)
+    papel, token = acesso.entrar(e.codigo, e.matricula)
     if not papel:
-        raise HTTPException(401, 'Código incorreto.')
-    return {'papel': papel, 'token': token}
+        raise HTTPException(401, 'Matrícula não cadastrada. Peça à central para cadastrar.' if re.sub(r'\D', '', e.matricula) else 'Informe a matrícula.')
+    u = acesso.quem(token) or {}
+    mat = u.get('matricula') or re.sub(r'\D', '', e.matricula)
+    nome = u.get('nome') or (estado.pessoas.perfis().get(mat) or {}).get('nome', '')  # passageiro: nome que a central já aprendeu
+    return {'papel': papel, 'token': token, 'matricula': mat, 'nome': nome, 'perfil': u.get('perfil') or ('passageiro' if mat else '')}
+
+
+# ---------- acesso por pessoa (aba Acessos da central; só adm / código da operação) ----------
+@app.get('/api/usuarios')
+def ver_usuarios():
+    return acesso.usuarios()
+
+
+class Usuario(BaseModel):
+    nome: str = ''
+    perfil: str
+
+
+@app.post('/api/usuarios/{mat}')
+def salvar_usuario(mat: str, u: Usuario):
+    try:
+        r = acesso.salvar_usuario(mat, u.nome, u.perfil)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    estado.pessoas.registrar(r['nome'], r['matricula'], 'central')
+    estado.evento('acesso', f"Acesso de {r['nome']} (mat. {r['matricula']}) salvo como {r['perfil']}")
+    return r
+
+
+@app.post('/api/usuarios/{mat}/remover')
+def remover_usuario(mat: str):
+    try:
+        acesso.remover_usuario(mat)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    estado.evento('acesso', f'Acesso da matrícula {mat} removido')
+    return {'ok': True}
 
 
 @app.get('/api/acesso')
@@ -356,13 +398,17 @@ class Mensagem(BaseModel):
     matricula: str | None = None
     nome: str | None = None
     clienteId: str | None = None
+    lat: float | None = None       # GPS do celular do passageiro (página do passageiro)
+    lon: float | None = None
+    precisao: float | None = None
 
 
 @app.post('/api/assistente')
 def assistente(m: Mensagem):
     if not m.texto.strip():
         raise HTTPException(400, 'Texto vazio.')
-    return central.mensagem(m.texto.strip(), m.canal, {'matricula': m.matricula, 'nome': m.nome, 'clienteId': m.clienteId})
+    return central.mensagem(m.texto.strip(), m.canal, {'matricula': m.matricula, 'nome': m.nome, 'clienteId': m.clienteId,
+                                                         'lat': m.lat, 'lon': m.lon, 'precisao': m.precisao})
 
 
 @app.post('/api/assistente/recarregar')
@@ -444,6 +490,8 @@ class Pedido(BaseModel):
     urgente: bool = False
     canal: str = 'app'
     clienteId: str = ''
+    posPassageiro: dict | None = None  # {lat, lon, precisao} do celular de quem pediu
+    pedidoPor: dict | None = None      # {nome, matricula} quando pede para outra pessoa
 
 
 @app.post('/api/corridas')
@@ -527,6 +575,17 @@ def acao_motorista(mid: str, nome: str, dados: dict | None = None):
             patch.update(geo_para_xy(lat, lon))
         estado.aplicar([{'col': 'motoristas', 'id': mid, 'patch': patch}])
         return {'ok': True}
+    elif nome == 'condutor':  # quem está dirigindo neste turno (o app do motorista pede a matrícula)
+        mat = re.sub(r'\D', '', str(dados.get('matricula') or ''))
+        if not mat:
+            estado.aplicar([{'col': 'motoristas', 'id': mid, 'patch': {'condutor': None}}])
+        else:
+            nome_c = (dados.get('nome') or '').strip() or (estado.pessoas.perfis().get(mat) or {}).get('nome', '')
+            if not nome_c:
+                raise HTTPException(400, 'Matrícula ainda não cadastrada: informe também o nome.')
+            if (dados.get('nome') or '').strip():
+                estado.pessoas.registrar(nome_c, mat, 'motorista')
+            estado.aplicar([{'col': 'motoristas', 'id': mid, 'patch': {'condutor': {'matricula': mat, 'nome': nome_c, 'desde': t}}}])
     elif nome == 'pane':
         central.pane(mid, bool(dados.get('ligar')))
     elif nome == 'remover':
@@ -559,11 +618,11 @@ def voz_info():
 
 
 @app.get('/api/voz')
-def voz_falar(texto: str, voz_id: str = 'pf_dora', vel: float = 1.0):
+def voz_falar(texto: str, vel: float = 1.0):  # voz única da central (app/voz.py); voz_id de telas antigas é ignorado
     if not texto.strip():
         raise HTTPException(400, 'Texto vazio.')
     try:
-        wav = voz.gerar(texto, voz_id, vel)
+        wav = voz.gerar(texto, vel)
     except Exception as e:
         raise HTTPException(503, f'Voz indisponível: {e}')
     return Response(wav, media_type='audio/wav', headers={'Cache-Control': 'max-age=86400'})
@@ -608,6 +667,27 @@ def exportar():
                              headers={'Content-Disposition': 'attachment; filename=corridas.csv'})
 
 
+# ---------- integração com o Microsoft 365 (Power Automate lê o feed e grava no SharePoint) ----------
+def _chave_integracao(chave):
+    certa = os.environ.get('INTEGRACAO_CHAVE', '')
+    if not certa or chave != certa:
+        raise HTTPException(404)
+
+
+@app.get('/api/integracao/corridas.json')
+def integracao_json(chave: str = ''):
+    _chave_integracao(chave)
+    lista = integracao.viagens(despacho.indicadores(estado.est(), agora()), estado.dados['motoristas'])
+    return [{k: v for k, v in x.items() if k != '_fim'} for x in lista]
+
+
+@app.get('/api/integracao/corridas.rss')
+def integracao_rss(request: Request, chave: str = ''):
+    _chave_integracao(chave)
+    lista = integracao.viagens(despacho.indicadores(estado.est(), agora()), estado.dados['motoristas'])
+    return Response(integracao.rss(lista, str(request.base_url)), media_type='application/rss+xml; charset=utf-8')
+
+
 @app.get('/api/conversas.csv')
 def exportar_conversas():
     buf = io.StringIO()
@@ -643,6 +723,12 @@ async def ws(sock: WebSocket):
 
 
 # ---------- aplicativos ----------
+@app.get('/passageiro')
+def so_passageiro():
+    # link para mandar ao pessoal: abre direto a página de pedir viagem
+    return FileResponse(FRONT / 'passageiro.html')
+
+
 @app.get('/')
 def inicio():
     return FileResponse(FRONT / 'index.html')

@@ -477,6 +477,9 @@ def criar_corrida(p, est, t):
         'textoFalado': p.get('textoFalado') or '', 'interpretacao': p.get('interpretacao') or None, 'agendadoPara': p.get('agendadoPara') or None,
         'status': 'agendada', 'carro': None, 'ordem': t, 'recusadoPor': [], 'criadoEm': t, 'kmViagem': dist_km(LOC[p['origem']], LOC[p['destino']]),
     }
+    for k in ('posPassageiro', 'pedidoPor'):  # GPS do celular de quem pediu / pedido feito para outra pessoa
+        if p.get(k):
+            r[k] = p[k]
     ops = [{'col': 'corridas', 'id': r['id'], 'set': r}]
     if r['agendadoPara'] and r['agendadoPara'] - CFG['antecedenciaAgendadaMin'] * MIN > t:
         return {'corrida': r, 'ops': ops}
